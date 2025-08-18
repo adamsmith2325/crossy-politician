@@ -5,14 +5,11 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal",
-      "env": { "COCOAPODS_VERSION": "1.15.2" }
+      "distribution": "internal"
     },
     "preview": {
       "distribution": "internal"
     },
-    "production": {
-      "env": { "COCOAPODS_VERSION": "1.15.2" }
-    }
+    "production": {}
   }
 }
