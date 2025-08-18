@@ -18,6 +18,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     supportsTablet: true,
     bundleIdentifier: "com.prismixlabs.crossytrump",
     infoPlist: {
+      "ITSAppUsesNonExemptEncryption": false,
       NSUserTrackingUsageDescription: "We use your device identifier to deliver more relevant ads and to support the app."
     }
   },
@@ -32,8 +33,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "react-native-google-mobile-ads",
       {
-        ios_app_id: "ca-app-pub-3940256099942544~1458002511",
-        android_app_id: "ca-app-pub-3940256099942544~3347511713"
+          androidAppId: "ca-app-pub-5901242452853695~2399952491",
+          iosAppId: "ca-app-pub-5901242452853695~2944530360",
       }
     ]
   ],
