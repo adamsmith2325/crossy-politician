@@ -31,6 +31,7 @@
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="crossypolitician"/>
         <data android:scheme="com.prismixlabs.crossytrump"/>
+        <data android:scheme="exp+crossy-politician"/>
       </intent-filter>
     </activity>
     <activity android:name="com.facebook.react.devsupport.DevSettingsActivity" android:exported="false"/>

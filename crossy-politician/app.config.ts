@@ -5,7 +5,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: "Crossy Politician",
   slug: "crossy-politician",
   scheme: "crossypolitician",
-  version: "2.0.0",
+  version: "1.0.0",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
   icon: "./assets/icon.png",
@@ -15,7 +15,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     backgroundColor: "#0b1220"
   },
   ios: {
-    supportsTablet: true,
+    supportsTablet: false,
     bundleIdentifier: "com.prismixlabs.crossytrump",
     infoPlist: {
       "ITSAppUsesNonExemptEncryption": false,
