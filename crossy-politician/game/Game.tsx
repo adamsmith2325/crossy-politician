@@ -1,7 +1,7 @@
 // src/three/Game3D.tsx
 import React, { useMemo } from 'react';
 import { View } from 'react-native';
-import { Canvas } from '@react-three/fiber/native';
+import { Renderer, THREE } from 'expo-three';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 
@@ -11,6 +11,8 @@ import VoxelTruck from '../game/components/VoxelTruck';
 import VoxelTree from '../game/components/VoxelTree';
 import VoxelPlayer from '../game/components/VoxelPlayer';
 import { COLS, ROWS } from '../game/constants';
+
+const { Scene, PerspectiveCamera, Mesh, BoxGeometry, MeshBasicMaterial } = THREE;
 
 type Lane = {
   type: 'grass' | 'road';

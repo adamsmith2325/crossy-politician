@@ -1,21 +1,32 @@
-// src/three/VoxelTruck.tsx
-import React from 'react';
-export default function VoxelTruck({ x, z }: { x: number; z: number }) {
-  const y = 0.25;
-  return (
-    <group position={[x, y, z]}>
-      <mesh position={[0, -0.25, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.55, 12]} />
-        <meshStandardMaterial color="black" transparent opacity={0.22} />
-      </mesh>
-      <mesh castShadow position={[-0.18, 0, 0]}>
-        <boxGeometry args={[1.1, 0.5, 0.6]} />
-        <meshStandardMaterial color="#e0e6ee" />
-      </mesh>
-      <mesh castShadow position={[0.55, -0.02, 0]}>
-        <boxGeometry args={[0.45, 0.45, 0.6]} />
-        <meshStandardMaterial color="#de3d3d" />
-      </mesh>
-    </group>
+// src/three/voxels/Truck.ts
+import * as THREE from 'three';
+
+export function buildTruck(): THREE.Group {
+  const g = new THREE.Group();
+
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.55, 12),
+    new THREE.MeshStandardMaterial({ color: 0x000000, transparent: true, opacity: 0.22 })
   );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = -0.25;
+  g.add(shadow);
+
+  const trailer = new THREE.Mesh(
+    new THREE.BoxGeometry(1.1, 0.5, 0.6),
+    new THREE.MeshStandardMaterial({ color: 0xe0e6ee })
+  );
+  trailer.castShadow = true;
+  trailer.position.x = -0.18;
+  g.add(trailer);
+
+  const cab = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.45, 0.6),
+    new THREE.MeshStandardMaterial({ color: 0xde3d3d })
+  );
+  cab.castShadow = true;
+  cab.position.x = 0.55;
+  g.add(cab);
+
+  return g;
 }

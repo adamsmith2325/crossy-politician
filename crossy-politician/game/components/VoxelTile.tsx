@@ -1,48 +1,39 @@
-// src/three/VoxelTile.tsx
-import React from 'react';
-import { Color } from 'three';
+// src/three/voxels/Tile.ts
+import * as THREE from 'three';
 
-const COLORS = {
-  grass: new Color('#86d46c'),
-  grassBand: new Color('#73c156'),
-  road: new Color('#3C424C'),
-  dash: new Color('#cdd6e3'),
-};
-
-export default function VoxelTile({
-  type,
-  x,
-  z,
-  width,
-}: {
-  type: 'grass' | 'road';
-  x: number;
-  z: number;
-  width: number;
-}) {
-  const isGrass = type === 'grass';
-  return (
-    <group position={[x, -0.01, z]}>
-      <mesh receiveShadow>
-        <boxGeometry args={[width, 0.02, 1]} />
-        <meshStandardMaterial color={isGrass ? COLORS.grass : COLORS.road} />
-      </mesh>
-
-      {isGrass ? (
-        <mesh position={[0, 0.001, 0]}>
-          <boxGeometry args={[width, 0.01, 0.2]} />
-          <meshStandardMaterial color={COLORS.grassBand} />
-        </mesh>
-      ) : (
-        <group position={[-width / 2 + 0.6, 0.001, 0]}>
-          {Array.from({ length: Math.floor(width / 1.2) }).map((_, i) => (
-            <mesh key={i} position={[i * 1.2, 0, 0]}>
-              <boxGeometry args={[0.6, 0.01, 0.05]} />
-              <meshStandardMaterial color={COLORS.dash} />
-            </mesh>
-          ))}
-        </group>
-      )}
-    </group>
+export function buildGrassTile(width = 9): THREE.Group {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(width, 0.02, 1),
+    new THREE.MeshStandardMaterial({ color: 0x86d46c })
   );
+  base.receiveShadow = true;
+  g.add(base);
+
+  const band = new THREE.Mesh(
+    new THREE.BoxGeometry(width, 0.01, 0.2),
+    new THREE.MeshStandardMaterial({ color: 0x73c156 })
+  );
+  band.position.y = 0.001;
+  g.add(band);
+
+  return g;
+}
+
+export function buildRoadTile(width = 9): THREE.Group {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(width, 0.02, 1),
+    new THREE.MeshStandardMaterial({ color: 0x3c424c })
+  );
+  base.receiveShadow = true;
+  g.add(base);
+
+  const dashMat = new THREE.MeshStandardMaterial({ color: 0xcdd6e3 });
+  for (let i = 0; i < Math.floor(width / 1.2); i++) {
+    const dash = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.01, 0.05), dashMat);
+    dash.position.set(-width / 2 + 0.6 + i * 1.2, 0.001, 0);
+    g.add(dash);
+  }
+  return g;
 }

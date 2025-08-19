@@ -1,19 +1,33 @@
+// App.tsx
 import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
 import { SafeAreaView, StatusBar, Platform } from 'react-native';
-import Game from './game/Game';
-import mobileAds from 'react-native-google-mobile-ads';
-// import { showAppOpenOnStart } from './ads/adManager';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as TrackingTransparency from 'expo-tracking-transparency';
+import mobileAds from 'react-native-google-mobile-ads';
+
+import Game from './game/Game'; // <-- inside this file, use: `import { THREE } from 'expo-three'`
 
 export default function App() {
   useEffect(() => {
     (async () => {
-      if (Platform.OS === 'ios') {
-        try { await TrackingTransparency.requestTrackingPermissionsAsync(); } catch {}
+      try {
+        if (Platform.OS === 'ios') {
+          // Ask for App Tracking Transparency permission on iOS
+          await TrackingTransparency.requestTrackingPermissionsAsync();
+        }
+      } catch {
+        // ignore ATT errors
       }
-      await mobileAds().initialize();
+
+      // Initialize Google Mobile Ads SDK
+      try {
+        await mobileAds().initialize();
+      } catch {
+        // ignore ad init errors to avoid blocking app launch
+      }
+
+      // If you have an app-open ad, you can call it here.
       // showAppOpenOnStart();
     })();
   }, []);
