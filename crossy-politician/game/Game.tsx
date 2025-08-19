@@ -10,6 +10,10 @@ import { showInterstitialIfEligible } from '../ads/adManager';
 import { addScore, loadLeaderboard } from '../utils/leaderboard';
 import { submitScore, fetchTopScores } from '../utils/remoteLeaderboard';
 
+// ✅ bring back the modals
+import LeaderboardModal from '../ui/LeaderboardModal';
+import UsernameModal from '../ui/UsernameModal';
+
 const { width: SCREEN_W } = Dimensions.get('window');
 
 // ---- base tuning ----
@@ -27,7 +31,6 @@ type Lane = {
 
 // ---- helpers ----
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
-const ri = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a;
 
 /**
  * Difficulty curve based on how far you've progressed (global row index).
@@ -35,11 +38,11 @@ const ri = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a
  */
 function difficultyForRow(globalRow: number) {
   const t = Math.min(globalRow / 150, 1); // 0 → 1 over ~150 rows
-  const roadProb     = clamp(0.45 + 0.40 * t, 0.45, 0.85);
-  const speedMin     = 2 + 3.0 * t;       // 2 → 5
-  const speedMax     = 3 + 4.0 * t;       // 3 → 7
-  const minCarGap    = clamp(2.8 - 1.6 * t, 1.2, 2.8); // 2.8 → 1.2
-  const truckEvery   = Math.max(4, 10 - Math.floor(t * 6)); // every N cars: 10 → 4
+  const roadProb   = clamp(0.45 + 0.40 * t, 0.45, 0.85);
+  const speedMin   = 2 + 3.0 * t;       // 2 → 5
+  const speedMax   = 3 + 4.0 * t;       // 3 → 7
+  const minCarGap  = clamp(2.8 - 1.6 * t, 1.2, 2.8); // 2.8 → 1.2
+  const truckEvery = Math.max(4, 10 - Math.floor(t * 6)); // 10 → 4
   return { roadProb, speedMin, speedMax, minCarGap, truckEvery };
 }
 
@@ -76,7 +79,7 @@ export default function Game() {
   // infinite world
   const [rowOffset, setRowOffset] = useState(0);
   const [lanes, setLanes] = useState<Lane[]>(() => seedLanes(0));
-  const [player, setPlayer] = useState({ x: Math.floor(COLS / 2), y: 1 }); // visible at start
+  const [player, setPlayer] = useState({ x: Math.floor(COLS / 2), y: 1 }); // visible at start (near/bottom)
   const [alive, setAlive] = useState(true);
 
   // meta / UI
@@ -154,26 +157,34 @@ export default function Game() {
     setPlayer(p => ({ x: p.x, y: p.y - 1 }));
   }, [rowOffset]);
 
-  // input
+  // ✅ input: Forward is SWIPE UP (dy < 0)
   const moveBy = useCallback((dx: number, dy: number) => {
     if (!alive || overlay) return;
 
     setPlayer(p => {
+      // lateral clamp
       let nx = Math.max(0, Math.min(COLS - 1, p.x + dx));
-      let ny = Math.max(0, Math.min(VISIBLE_ROWS - 1, p.y + dy));
+      // translate dy screen gesture to world forward/back:
+      // dy < 0 => forward (increase y), dy > 0 => backward (decrease y)
+      const deltaY = dy < 0 ? 1 : dy > 0 ? -1 : 0;
+      let ny = Math.max(0, Math.min(VISIBLE_ROWS - 1, p.y + deltaY));
 
-      if (dy > 0 && ny !== p.y) {
+      // Only score when moving forward (dy < 0)
+      if (deltaY === 1 && ny !== p.y) {
         setScore(s => s + 1);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         play('move');
 
+        // When near top third, push a new row and keep the player in view
         if (ny >= Math.floor(VISIBLE_ROWS * 0.66)) {
           pushRow();
-          ny = ny - 1;
+          ny = ny - 1; // compensate after pop
         }
       } else if (nx !== p.x) {
-        Haptics.selectionAsync(); play('move');
+        Haptics.selectionAsync();
+        play('move');
       }
+
       return { x: nx, y: ny };
     });
   }, [alive, overlay, pushRow]);
@@ -197,7 +208,7 @@ export default function Game() {
   const resetRun = useCallback(() => {
     setRowOffset(0);
     setLanes(seedLanes(0));
-    setPlayer({ x: Math.floor(COLS / 2), y: 1 });
+    setPlayer({ x: Math.floor(COLS / 2), y: 1 }); // start near/bottom
     setScore(0);
     setAlive(true);
   }, []);
@@ -284,7 +295,10 @@ export default function Game() {
 
             {runs > 0 && (
               <Pressable
-                onPress={submit}
+                onPress={() => {
+                  if (!username) { setShowUN(true); return; } // open username modal if missing
+                  submit();
+                }}
                 style={({ pressed }) => ({
                   backgroundColor: pressed ? '#17324f' : '#0e2942',
                   paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#2d4f79', marginBottom: 10
@@ -310,6 +324,21 @@ export default function Game() {
           </View>
         </View>
       )}
+
+      {/* ✅ Modals restored */}
+      <LeaderboardModal
+        visible={showLB}
+        onClose={() => setShowLB(false)}
+        title="Top Scores"
+        items={remoteLB}
+      />
+
+      <UsernameModal
+        visible={showUN}
+        initial={username}
+        onSave={saveUN}
+        onCancel={() => setShowUN(false)}
+      />
     </View>
   );
 }
