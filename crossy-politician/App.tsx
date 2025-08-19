@@ -22,7 +22,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: '#0b1220' }}>
         <StatusBar barStyle="light-content" />
-        <Game />
+        <Game
+          lanes={[]}
+          player={{ x: 0, y: 0 }}
+          onSwipe={() => {}}
+        />
       </SafeAreaView>
     </GestureHandlerRootView>
   );

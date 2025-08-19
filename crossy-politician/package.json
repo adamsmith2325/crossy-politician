@@ -15,10 +15,10 @@
     "@react-three/fiber": "^9.3.0",
     "@supabase/supabase-js": "^2.45.4",
     "drei": "^2.2.21",
-    "expo": "^53.0.0",
+    "expo": "53.0.20",
     "expo-av": "~15.1.7",
     "expo-dev-client": "~5.2.4",
-    "expo-gl": "^15.1.7",
+    "expo-gl": "~15.1.7",
     "expo-haptics": "~14.1.4",
     "expo-image": "^2.4.0",
     "expo-router": "^5.1.4",
@@ -26,7 +26,8 @@
     "expo-system-ui": "^5.0.10",
     "expo-tracking-transparency": "~5.2.4",
     "getenv": "^2.0.0",
-    "react": "^19.0.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
     "react-native": "0.79.5",
     "react-native-gesture-handler": "~2.24.0",
     "react-native-get-random-values": "^1.11.0",
@@ -42,5 +43,9 @@
     "@expo/config-plugins": "~10.1.1",
     "@types/react": "~19.0.10",
     "typescript": "^5.4.0"
+  },
+  "overrides": {
+    "react-dom": "19.0.0",
+    "react": "19.0.0"
   }
 }
