@@ -16,7 +16,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   ios: {
     supportsTablet: false,
-    bundleIdentifier: "com.prismixlabs.crossytrump",
+    bundleIdentifier: "com.prismixlabs.crossypolitician",
     infoPlist: {
       "ITSAppUsesNonExemptEncryption": false,
       NSUserTrackingUsageDescription: "We use your device identifier to deliver more relevant ads and to support the app."
