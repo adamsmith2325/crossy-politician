@@ -1,9 +1,9 @@
 import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
 import { SafeAreaView, StatusBar, Platform } from 'react-native';
-import Game from './src/game/Game';
+import Game from './game/Game';
 import mobileAds from 'react-native-google-mobile-ads';
-import { showAppOpenOnStart } from './src/ads/adManager';
+import { showAppOpenOnStart } from './ads/adManager';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as TrackingTransparency from 'expo-tracking-transparency';
 

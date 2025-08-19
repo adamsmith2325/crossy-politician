@@ -59,7 +59,7 @@ export default function Game() {
   const [showUsernameModal, setShowUsernameModal] = useState(false);
 
   const lastTick = useRef<number>(Date.now());
-  const intervalRef = useRef<NodeJS.Timer | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load username / best / remote scores on mount
   useEffect(() => {

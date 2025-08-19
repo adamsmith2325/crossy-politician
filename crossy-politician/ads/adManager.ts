@@ -51,8 +51,10 @@ export const showInterstitialIfEligible = async (runCount: number) => {
         interstitial?.load();
         resolve();
       };
-      interstitial.addAdEventListener(AdEventType.CLOSED, onClosed);
-      interstitial.show();
+      if (interstitial) {
+        interstitial.addAdEventListener(AdEventType.CLOSED, onClosed);
+        interstitial.show();
+      }
     });
   }
   return Promise.resolve();
