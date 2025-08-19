@@ -10,79 +10,86 @@ import { showInterstitialIfEligible } from '../ads/adManager';
 import { addScore, loadLeaderboard } from '../utils/leaderboard';
 import { submitScore, fetchTopScores } from '../utils/remoteLeaderboard';
 
-// ✅ bring back the modals
+// ✅ Modals
 import LeaderboardModal from '../ui/LeaderboardModal';
 import UsernameModal from '../ui/UsernameModal';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
-// ---- base tuning ----
+// ─────────────────────────────────────────────────────────────────────────────
+// Orientation toggle
+// Most setups render row 0 at the BOTTOM (increasing y goes "forward").
+// If your build renders row 0 at the TOP instead, flip this to false.
+const Y_ZERO_AT_BOTTOM = true;
+// ─────────────────────────────────────────────────────────────────────────────
+
 const COLS = 9;
 const VISIBLE_ROWS = 14;
 
-// ---- types ----
 type Lane = {
   idx: number;                     // absolute world row
   type: 'grass' | 'road';
   dir: 1 | -1;
   speed: number;                   // tiles/sec
-  cars: number[];                  // x positions (fractional)
+  cars: number[];                  // fractional x positions
 };
 
-// ---- helpers ----
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
-/**
- * Difficulty curve based on how far you've progressed (global row index).
- * t grows with distance; we cap the effect so it doesn’t become impossible.
- */
 function difficultyForRow(globalRow: number) {
-  const t = Math.min(globalRow / 150, 1); // 0 → 1 over ~150 rows
+  const t = Math.min(globalRow / 150, 1);
   const roadProb   = clamp(0.45 + 0.40 * t, 0.45, 0.85);
-  const speedMin   = 2 + 3.0 * t;       // 2 → 5
-  const speedMax   = 3 + 4.0 * t;       // 3 → 7
-  const minCarGap  = clamp(2.8 - 1.6 * t, 1.2, 2.8); // 2.8 → 1.2
-  const truckEvery = Math.max(4, 10 - Math.floor(t * 6)); // 10 → 4
+  const speedMin   = 2 + 3.0 * t;         // 2 → 5
+  const speedMax   = 3 + 4.0 * t;         // 3 → 7
+  const minCarGap  = clamp(2.8 - 1.6 * t, 1.2, 2.8);
+  const truckEvery = Math.max(4, 10 - Math.floor(t * 6)); // every N cars: 10 → 4
   return { roadProb, speedMin, speedMax, minCarGap, truckEvery };
 }
 
-// Generate one lane using difficulty for the given global row index.
 function genLane(idx: number): Lane {
   const { roadProb, speedMin, speedMax, minCarGap } = difficultyForRow(idx);
-  const isEdge = idx <= 1; // keep the first couple rows safe
+  const isEdge = idx <= 1;
   const isRoad = !isEdge && Math.random() < roadProb;
   const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
   const speed = isRoad ? (Math.random() * (speedMax - speedMin) + speedMin) : 0;
 
   const cars: number[] = [];
   if (isRoad) {
-    // Seed cars with a minimum spacing that gets tighter as you progress
     let x = Math.random() * (minCarGap + 1);
     while (x < COLS + 1) {
       cars.push(x);
       x += minCarGap + Math.random() * 3;
     }
   }
-
   return { idx, type: isRoad ? 'road' : 'grass', dir, speed, cars };
 }
 
 function seedLanes(startIdx = 0): Lane[] {
-  const lanes: Lane[] = [];
-  for (let i = 0; i < VISIBLE_ROWS; i++) lanes.push(genLane(startIdx + i));
-  lanes[0].type = 'grass'; lanes[0].cars = [];
-  lanes[1].type = 'grass'; lanes[1].cars = [];
-  return lanes;
+  const arr: Lane[] = [];
+  for (let i = 0; i < VISIBLE_ROWS; i++) arr.push(genLane(startIdx + i));
+
+  if (Y_ZERO_AT_BOTTOM) {
+    // bottom two safe
+    arr[0].type = 'grass'; arr[0].cars = [];
+    arr[1].type = 'grass'; arr[1].cars = [];
+  } else {
+    // top two safe
+    arr[VISIBLE_ROWS - 1].type = 'grass'; arr[VISIBLE_ROWS - 1].cars = [];
+    arr[VISIBLE_ROWS - 2].type = 'grass'; arr[VISIBLE_ROWS - 2].cars = [];
+  }
+  return arr;
 }
 
 export default function Game() {
-  // infinite world
   const [rowOffset, setRowOffset] = useState(0);
   const [lanes, setLanes] = useState<Lane[]>(() => seedLanes(0));
-  const [player, setPlayer] = useState({ x: Math.floor(COLS / 2), y: 1 }); // visible at start (near/bottom)
+
+  // Start near the bottom or top depending on orientation
+  const startY = Y_ZERO_AT_BOTTOM ? 1 : VISIBLE_ROWS - 2;
+  const [player, setPlayer] = useState({ x: Math.floor(COLS / 2), y: startY });
   const [alive, setAlive] = useState(true);
 
-  // meta / UI
+  // UI/meta
   const [score, setScore] = useState(0);
   const [best, setBest] = useState(0);
   const [runs, setRuns] = useState(0);
@@ -91,6 +98,7 @@ export default function Game() {
   const [showLB, setShowLB] = useState(false);
   const [showUN, setShowUN] = useState(false);
   const [remoteLB, setRemoteLB] = useState<{ username?: string; score: number; created_at?: string }[]>([]);
+  const [submitting, setSubmitting] = useState(false);
 
   // tick
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -100,14 +108,15 @@ export default function Game() {
   useEffect(() => {
     initSounds();
     (async () => {
-      const stored = await AsyncStorage.getItem('ct_username'); if (stored) setUsername(stored);
+      const stored = await AsyncStorage.getItem('ct_username');
+      if (stored) setUsername(stored);
       const lb = await loadLeaderboard(); setBest(lb.best);
       setRemoteLB(await fetchTopScores(25));
     })();
     return () => { unloadSounds(); };
   }, []);
 
-  // cars movement + collision
+  // move cars + collision
   useEffect(() => {
     if (!alive || overlay) return;
     if (timerRef.current) clearInterval(timerRef.current);
@@ -118,7 +127,6 @@ export default function Game() {
       const dt = Math.min((now - lastRef.current) / 1000, 0.05);
       lastRef.current = now;
 
-      // Move cars using each lane's speed/direction
       setLanes(prev => prev.map(l => {
         if (l.type !== 'road') return l;
         const moved = l.cars.map(c => c + l.dir * l.speed * dt);
@@ -126,7 +134,7 @@ export default function Game() {
         return { ...l, cars: wrapped };
       }));
 
-      // Collision check against current snapshot
+      // collision against current snapshot
       setAlive(prevAlive => {
         if (!prevAlive) return prevAlive;
         const lane = lanes[player.y];
@@ -145,40 +153,55 @@ export default function Game() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [alive, overlay, lanes, player.x, player.y]);
 
-  // Endless scroll when near the top of the window
+  // forward/backward mapping (swipe-up is forward)
+  const forwardStep = Y_ZERO_AT_BOTTOM ? +1 : -1;
+  const backwardStep = -forwardStep;
+
+  // push a new row "ahead" of the player (endless)
   const pushRow = useCallback(() => {
     setLanes(prev => {
       const nextStart = rowOffset + 1;
-      const next = prev.slice(1);
-      next.push(genLane(nextStart + VISIBLE_ROWS - 1));
-      return next;
+      if (Y_ZERO_AT_BOTTOM) {
+        // bottom -> top: drop bottom, add to top (end)
+        const next = prev.slice(1);
+        next.push(genLane(nextStart + VISIBLE_ROWS - 1));
+        return next;
+      } else {
+        // top -> bottom: drop bottom (last), add to top (start)
+        const next = prev.slice(0, prev.length - 1);
+        next.unshift(genLane(nextStart + VISIBLE_ROWS - 1));
+        return next;
+      }
     });
     setRowOffset(r => r + 1);
-    setPlayer(p => ({ x: p.x, y: p.y - 1 }));
+
+    // keep player in view after shifting rows
+    setPlayer(p => ({ x: p.x, y: Y_ZERO_AT_BOTTOM ? p.y - 1 : p.y + 1 }));
   }, [rowOffset]);
 
-  // ✅ input: Forward is SWIPE UP (dy < 0)
+  // ✅ SWIPE HANDLER: up = forward
   const moveBy = useCallback((dx: number, dy: number) => {
     if (!alive || overlay) return;
 
     setPlayer(p => {
-      // lateral clamp
       let nx = Math.max(0, Math.min(COLS - 1, p.x + dx));
-      // translate dy screen gesture to world forward/back:
-      // dy < 0 => forward (increase y), dy > 0 => backward (decrease y)
-      const deltaY = dy < 0 ? 1 : dy > 0 ? -1 : 0;
+
+      const deltaY = dy < 0 ? forwardStep : dy > 0 ? backwardStep : 0;
       let ny = Math.max(0, Math.min(VISIBLE_ROWS - 1, p.y + deltaY));
 
-      // Only score when moving forward (dy < 0)
-      if (deltaY === 1 && ny !== p.y) {
+      // score only when moving forward
+      if (deltaY === forwardStep && ny !== p.y) {
         setScore(s => s + 1);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         play('move');
 
-        // When near top third, push a new row and keep the player in view
-        if (ny >= Math.floor(VISIBLE_ROWS * 0.66)) {
+        // when near the forward edge, extend world
+        const forwardEdgeHit = Y_ZERO_AT_BOTTOM
+          ? ny >= Math.floor(VISIBLE_ROWS * 0.66)   // moving upward (higher y) toward top
+          : ny <= Math.floor(VISIBLE_ROWS * 0.33);  // moving upward (lower y) toward top
+        if (forwardEdgeHit) {
           pushRow();
-          ny = ny - 1; // compensate after pop
+          ny = ny - forwardStep; // compensate after list shift
         }
       } else if (nx !== p.x) {
         Haptics.selectionAsync();
@@ -187,9 +210,9 @@ export default function Game() {
 
       return { x: nx, y: ny };
     });
-  }, [alive, overlay, pushRow]);
+  }, [alive, overlay, forwardStep, pushRow]);
 
-  // end-of-run handling
+  // end-of-run → show modals and update scores
   useEffect(() => {
     if (!alive) {
       setRuns(r => r + 1);
@@ -208,34 +231,56 @@ export default function Game() {
   const resetRun = useCallback(() => {
     setRowOffset(0);
     setLanes(seedLanes(0));
-    setPlayer({ x: Math.floor(COLS / 2), y: 1 }); // start near/bottom
+    setPlayer({ x: Math.floor(COLS / 2), y: startY });
     setScore(0);
     setAlive(true);
   }, []);
 
-  // leaderboard helpers
+  // ── Leaderboard helpers (fix Submit flow) ──────────────────────────────────
   const submit = useCallback(async () => {
     if (!username) { setShowUN(true); return; }
-    const ok = await submitScore(username, score);
-    if (ok) setRemoteLB(await fetchTopScores(25));
+    try {
+      setSubmitting(true);
+      const ok = await submitScore(username, score);
+      if (ok) {
+        const data = await fetchTopScores(25);
+        setRemoteLB(data);
+        setShowLB(true); // show the board after submit
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }, [username, score]);
 
   const saveUN = useCallback(async (name: string) => {
     if (!name) { setShowUN(false); return; }
     await AsyncStorage.setItem('ct_username', name);
-    setUsername(name); setShowUN(false);
-    const ok = await submitScore(name, score);
-    if (ok) setRemoteLB(await fetchTopScores(25));
+    setUsername(name);
+    setShowUN(false);
+    // Immediately submit after saving (this fixes the "second modal didn't work" issue)
+    try {
+      setSubmitting(true);
+      const ok = await submitScore(name, score);
+      if (ok) {
+        const data = await fetchTopScores(25);
+        setRemoteLB(data);
+        setShowLB(true);
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }, [score]);
 
-  // ---- render ----
+  // ── render ─────────────────────────────────────────────────────────────────
   return (
     <View style={{ flex: 1, backgroundColor: '#0b1220', paddingTop: 8 }}>
       {/* header */}
       <View style={{ width: SCREEN_W, paddingHorizontal: 16, paddingVertical: 8,
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700' }}>Crossy Politician</Text>
-        <Text style={{ color: '#9fd5ff', fontSize: 16 }}>Score: {score}  •  Best: {best}</Text>
+        <Text style={{ color: '#9fd5ff', fontSize: 16 }}>
+          Score: {score}  •  Best: {best}
+        </Text>
       </View>
 
       {/* scene */}
@@ -249,7 +294,6 @@ export default function Game() {
               type: l.type,
               cars: l.cars.map((x, i) => ({
                 x,
-                // truck frequency ramps with difficulty
                 kind: (i % truckEvery === 0
                         ? 'truck'
                         : ((l.idx + i) % 2 ? 'red' : 'yellow')) as 'truck' | 'red' | 'yellow'
@@ -295,17 +339,16 @@ export default function Game() {
 
             {runs > 0 && (
               <Pressable
-                onPress={() => {
-                  if (!username) { setShowUN(true); return; } // open username modal if missing
-                  submit();
-                }}
+                onPress={submit}
+                disabled={submitting}
                 style={({ pressed }) => ({
                   backgroundColor: pressed ? '#17324f' : '#0e2942',
+                  opacity: submitting ? 0.6 : 1,
                   paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#2d4f79', marginBottom: 10
                 })}
               >
                 <Text style={{ color: '#9fd5ff', textAlign: 'center', fontWeight: '700' }}>
-                  Submit Score {username ? `as ${username}` : '(set username)'}
+                  {username ? `Submit Score as ${username}` : 'Submit Score (set username)'}
                 </Text>
               </Pressable>
             )}
@@ -325,7 +368,7 @@ export default function Game() {
         </View>
       )}
 
-      {/* ✅ Modals restored */}
+      {/* Modals */}
       <LeaderboardModal
         visible={showLB}
         onClose={() => setShowLB(false)}
@@ -336,7 +379,7 @@ export default function Game() {
       <UsernameModal
         visible={showUN}
         initial={username}
-        onSave={saveUN}
+        onSave={saveUN}          // ← saving username now immediately submits
         onCancel={() => setShowUN(false)}
       />
     </View>
