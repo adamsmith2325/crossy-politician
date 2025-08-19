@@ -36,7 +36,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           androidAppId: "ca-app-pub-5901242452853695~2399952491",
           iosAppId: "ca-app-pub-5901242452853695~2944530360",
       }
-    ]
+    ],
+    "expo-tracking-transparency"
   ],
   extra: {
     // Fill these via EXPO_PUBLIC_* env vars at build time or edit here.
