@@ -1,133 +1,129 @@
 // src/game/Game.tsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Dimensions, Pressable, Text, View } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 
-import VoxelScene from '../game/VoxelScene';
+import VoxelScene from './VoxelScene';
 import { initSounds, play, unloadSounds } from '../sound/soundManager';
 import { showInterstitialIfEligible } from '../ads/adManager';
 import { addScore, loadLeaderboard } from '../utils/leaderboard';
 import { submitScore, fetchTopScores } from '../utils/remoteLeaderboard';
 
-import LeaderboardModal from '../ui/LeaderboardModal';
-import UsernameModal from '../ui/UsernameModal';
+const { width: SCREEN_W } = Dimensions.get('window');
 
-// ---- Game tuning ----
+// ---- base tuning ----
 const COLS = 9;
-const ROWS = 14;
-const ROAD_PROBABILITY = 0.6;
-const MIN_CAR_GAP = 2;
+const VISIBLE_ROWS = 14;
 
-// ---- Types ----
+// ---- types ----
 type Lane = {
-  idx: number;
+  idx: number;                     // absolute world row
   type: 'grass' | 'road';
   dir: 1 | -1;
-  speed: number;       // tiles per second
-  cars: number[];      // car X positions (in tile space, fractional)
+  speed: number;                   // tiles/sec
+  cars: number[];                  // x positions (fractional)
 };
 
-// ---- Helpers ----
-const randomInt = (min: number, max: number) =>
-  Math.floor(Math.random() * (max - min + 1)) + min;
+// ---- helpers ----
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+const ri = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a;
 
-function generateLane(idx: number): Lane {
-  const isRoad =
-    Math.random() < ROAD_PROBABILITY && idx !== 0 && idx !== ROWS - 1;
+/**
+ * Difficulty curve based on how far you've progressed (global row index).
+ * t grows with distance; we cap the effect so it doesn’t become impossible.
+ */
+function difficultyForRow(globalRow: number) {
+  const t = Math.min(globalRow / 150, 1); // 0 → 1 over ~150 rows
+  const roadProb     = clamp(0.45 + 0.40 * t, 0.45, 0.85);
+  const speedMin     = 2 + 3.0 * t;       // 2 → 5
+  const speedMax     = 3 + 4.0 * t;       // 3 → 7
+  const minCarGap    = clamp(2.8 - 1.6 * t, 1.2, 2.8); // 2.8 → 1.2
+  const truckEvery   = Math.max(4, 10 - Math.floor(t * 6)); // every N cars: 10 → 4
+  return { roadProb, speedMin, speedMax, minCarGap, truckEvery };
+}
+
+// Generate one lane using difficulty for the given global row index.
+function genLane(idx: number): Lane {
+  const { roadProb, speedMin, speedMax, minCarGap } = difficultyForRow(idx);
+  const isEdge = idx <= 1; // keep the first couple rows safe
+  const isRoad = !isEdge && Math.random() < roadProb;
   const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
-  const speed = isRoad ? randomInt(2, 4) : 0;
-  const cars: number[] = [];
+  const speed = isRoad ? (Math.random() * (speedMax - speedMin) + speedMin) : 0;
 
+  const cars: number[] = [];
   if (isRoad) {
-    // seed a few cars with some minimal spacing
-    let x = Math.random() * (MIN_CAR_GAP + 1);
-    while (x < COLS) {
+    // Seed cars with a minimum spacing that gets tighter as you progress
+    let x = Math.random() * (minCarGap + 1);
+    while (x < COLS + 1) {
       cars.push(x);
-      x += MIN_CAR_GAP + Math.random() * 3;
+      x += minCarGap + Math.random() * 3;
     }
   }
 
   return { idx, type: isRoad ? 'road' : 'grass', dir, speed, cars };
 }
 
-function regenerateLanes(): Lane[] {
+function seedLanes(startIdx = 0): Lane[] {
   const lanes: Lane[] = [];
-  for (let i = 0; i < ROWS; i++) lanes.push(generateLane(i));
+  for (let i = 0; i < VISIBLE_ROWS; i++) lanes.push(genLane(startIdx + i));
   lanes[0].type = 'grass'; lanes[0].cars = [];
-  lanes[ROWS - 1].type = 'grass'; lanes[ROWS - 1].cars = [];
+  lanes[1].type = 'grass'; lanes[1].cars = [];
   return lanes;
 }
 
 export default function Game() {
-  const [lanes, setLanes] = useState<Lane[]>(() => regenerateLanes());
-  const [player, setPlayer] = useState({ x: Math.floor(COLS / 2), y: 0 });
+  // infinite world
+  const [rowOffset, setRowOffset] = useState(0);
+  const [lanes, setLanes] = useState<Lane[]>(() => seedLanes(0));
+  const [player, setPlayer] = useState({ x: Math.floor(COLS / 2), y: 1 }); // visible at start
   const [alive, setAlive] = useState(true);
+
+  // meta / UI
   const [score, setScore] = useState(0);
   const [best, setBest] = useState(0);
-  const [runCount, setRunCount] = useState(0);
-
-  // overlay + leaderboard UI
-  const [showOverlay, setShowOverlay] = useState(true);
+  const [runs, setRuns] = useState(0);
+  const [overlay, setOverlay] = useState(true);
+  const [username, setUsername] = useState('');
   const [showLB, setShowLB] = useState(false);
-  const [username, setUsername] = useState<string>('');
-  const [showUsernameModal, setShowUsernameModal] = useState(false);
-  const [lbItemsRemote, setLbItemsRemote] = useState<
-    { username?: string; score: number; created_at?: string }[]
-  >([]);
+  const [showUN, setShowUN] = useState(false);
+  const [remoteLB, setRemoteLB] = useState<{ username?: string; score: number; created_at?: string }[]>([]);
 
-  const rafRef = useRef<number | null>(null);
-  const lastTick = useRef<number>(Date.now());
+  // tick
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastRef = useRef<number>(Date.now());
 
-  // ----- bootstrap -----
-  useEffect(() => {
-    (async () => {
-      // username
-      try {
-        const stored = await AsyncStorage.getItem('ct_username');
-        if (stored) setUsername(stored);
-      } catch {}
-      // local best
-      const lb = await loadLeaderboard();
-      setBest(lb.best);
-      // remote board
-      try {
-        const top = await fetchTopScores(25);
-        setLbItemsRemote(top);
-      } catch (e) {
-        console.warn('fetchTopScores error', e);
-      }
-    })();
-  }, []);
-
-  // sounds
+  // bootstrap
   useEffect(() => {
     initSounds();
+    (async () => {
+      const stored = await AsyncStorage.getItem('ct_username'); if (stored) setUsername(stored);
+      const lb = await loadLeaderboard(); setBest(lb.best);
+      setRemoteLB(await fetchTopScores(25));
+    })();
     return () => { unloadSounds(); };
   }, []);
 
-  // ----- main loop (cars movement & collision) -----
+  // cars movement + collision
   useEffect(() => {
-    if (!alive || showOverlay) return;
+    if (!alive || overlay) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    lastRef.current = Date.now();
 
-    const tick = () => {
+    timerRef.current = setInterval(() => {
       const now = Date.now();
-      const dt = Math.min((now - lastTick.current) / 1000, 0.05);
-      lastTick.current = now;
+      const dt = Math.min((now - lastRef.current) / 1000, 0.05);
+      lastRef.current = now;
 
-      // move cars
-      setLanes(prev =>
-        prev.map(l => {
-          if (l.type !== 'road' || l.speed <= 0) return l;
-          const moved = l.cars.map(c => c + l.dir * l.speed * dt);
-          const wrapped = moved.map(c =>
-            c < -1 ? COLS + c : (c > COLS + 1 ? c - (COLS + 2) : c)
-          );
-          return { ...l, cars: wrapped };
-        })
-      );
+      // Move cars using each lane's speed/direction
+      setLanes(prev => prev.map(l => {
+        if (l.type !== 'road') return l;
+        const moved = l.cars.map(c => c + l.dir * l.speed * dt);
+        const wrapped = moved.map(c => (c < -1 ? COLS + c : (c > COLS + 1 ? c - (COLS + 2) : c)));
+        return { ...l, cars: wrapped };
+      }));
 
-      // collision test (lane under player)
+      // Collision check against current snapshot
       setAlive(prevAlive => {
         if (!prevAlive) return prevAlive;
         const lane = lanes[player.y];
@@ -141,188 +137,157 @@ export default function Game() {
         }
         return true;
       });
+    }, 16);
 
-      rafRef.current = requestAnimationFrame(tick);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [alive, overlay, lanes, player.x, player.y]);
 
-    lastTick.current = Date.now();
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    };
-  }, [alive, showOverlay, lanes, player.x, player.y]);
+  // Endless scroll when near the top of the window
+  const pushRow = useCallback(() => {
+    setLanes(prev => {
+      const nextStart = rowOffset + 1;
+      const next = prev.slice(1);
+      next.push(genLane(nextStart + VISIBLE_ROWS - 1));
+      return next;
+    });
+    setRowOffset(r => r + 1);
+    setPlayer(p => ({ x: p.x, y: p.y - 1 }));
+  }, [rowOffset]);
 
-  // win condition (reach last row)
-  useEffect(() => {
-    if (player.y >= ROWS - 1 && alive) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      play('win');
-      setAlive(false);
-    }
-  }, [player.y, alive]);
-
-  // when a run ends
-  useEffect(() => {
-    if (!alive) {
-      setRunCount(rc => rc + 1);
-      (async () => {
-        const lb = await addScore(score);
-        setBest(lb.best);
-        setShowOverlay(true);
-        setShowLB(true);
-        try {
-          const top = await fetchTopScores(25);
-          setLbItemsRemote(top);
-        } catch {}
-      })();
-    }
-  }, [alive, score]);
-
-  // show interstitial after every 3 runs (and when overlay is visible)
-  useEffect(() => {
-    if (showOverlay && runCount > 0) {
-      (async () => { await showInterstitialIfEligible(runCount); })();
-    }
-  }, [showOverlay, runCount]);
-
-  // ----- input (swipe) -> moveBy -----
-  const moveBy = (dx: number, dy: number) => {
-    if (!alive || showOverlay) return;
+  // input
+  const moveBy = useCallback((dx: number, dy: number) => {
+    if (!alive || overlay) return;
 
     setPlayer(p => {
-      const nx = Math.max(0, Math.min(COLS - 1, p.x + dx));
-      const ny = Math.max(0, Math.min(ROWS - 1, p.y + dy));
-      // forward progress increases score; give haptic + sound
-      if (ny !== p.y && dy > 0) {
+      let nx = Math.max(0, Math.min(COLS - 1, p.x + dx));
+      let ny = Math.max(0, Math.min(VISIBLE_ROWS - 1, p.y + dy));
+
+      if (dy > 0 && ny !== p.y) {
         setScore(s => s + 1);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         play('move');
+
+        if (ny >= Math.floor(VISIBLE_ROWS * 0.66)) {
+          pushRow();
+          ny = ny - 1;
+        }
       } else if (nx !== p.x) {
-        Haptics.selectionAsync();
-        play('move');
+        Haptics.selectionAsync(); play('move');
       }
       return { x: nx, y: ny };
     });
-  };
+  }, [alive, overlay, pushRow]);
 
-  const resetRun = () => {
-    setLanes(regenerateLanes());
-    setPlayer({ x: Math.floor(COLS / 2), y: 0 });
+  // end-of-run handling
+  useEffect(() => {
+    if (!alive) {
+      setRuns(r => r + 1);
+      (async () => {
+        const lb = await addScore(score);
+        setBest(lb.best);
+        setOverlay(true);
+        setShowLB(true);
+        setRemoteLB(await fetchTopScores(25));
+      })();
+    }
+  }, [alive]);
+
+  useEffect(() => { if (overlay && runs > 0) showInterstitialIfEligible(runs); }, [overlay, runs]);
+
+  const resetRun = useCallback(() => {
+    setRowOffset(0);
+    setLanes(seedLanes(0));
+    setPlayer({ x: Math.floor(COLS / 2), y: 1 });
     setScore(0);
     setAlive(true);
-  };
+  }, []);
 
-  const handleSubmitScore = async () => {
-    if (!username) { setShowUsernameModal(true); return; }
+  // leaderboard helpers
+  const submit = useCallback(async () => {
+    if (!username) { setShowUN(true); return; }
     const ok = await submitScore(username, score);
-    if (ok) setLbItemsRemote(await fetchTopScores(25));
-  };
+    if (ok) setRemoteLB(await fetchTopScores(25));
+  }, [username, score]);
 
-  const handleSaveUsername = async (name: string) => {
-    if (!name) { setShowUsernameModal(false); return; }
+  const saveUN = useCallback(async (name: string) => {
+    if (!name) { setShowUN(false); return; }
     await AsyncStorage.setItem('ct_username', name);
-    setUsername(name);
-    setShowUsernameModal(false);
+    setUsername(name); setShowUN(false);
     const ok = await submitScore(name, score);
-    if (ok) setLbItemsRemote(await fetchTopScores(25));
-  };
+    if (ok) setRemoteLB(await fetchTopScores(25));
+  }, [score]);
 
-  // ---- UI ----
-  const { width: SCREEN_W } = Dimensions.get('window');
-
+  // ---- render ----
   return (
-    <View style={{ flex: 1, backgroundColor: '#0b1220' }}>
+    <View style={{ flex: 1, backgroundColor: '#0b1220', paddingTop: 8 }}>
       {/* header */}
-      <View
-        style={{
-          width: SCREEN_W,
-          paddingHorizontal: 16,
-          paddingVertical: 8,
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700' }}>
-          Crossy Politician
-        </Text>
-        <Text style={{ color: '#9fd5ff', fontSize: 16 }}>
-          Score: {score}  •  Best: {best}
-        </Text>
+      <View style={{ width: SCREEN_W, paddingHorizontal: 16, paddingVertical: 8,
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700' }}>Crossy Politician</Text>
+        <Text style={{ color: '#9fd5ff', fontSize: 16 }}>Score: {score}  •  Best: {best}</Text>
       </View>
 
-      {/* 3D scene (expo-three + expo-gl) */}
+      {/* scene */}
       <View style={{ flex: 1 }}>
         <VoxelScene
           cols={COLS}
-          rows={ROWS}
-          lanes={lanes.map((l) => ({
-            type: l.type,
-            cars: (l.cars || []).map((x, i) => ({
-              x,
-              // simple variety for visuals only
-              kind: ((i % 6) === 0 ? 'truck' : (i % 2 ? 'red' : 'yellow')) as
-                | 'red'
-                | 'yellow'
-                | 'truck',
-            })),
-          }))}
+          visibleRows={VISIBLE_ROWS}
+          lanes={lanes.map(l => {
+            const { truckEvery } = difficultyForRow(l.idx);
+            return {
+              type: l.type,
+              cars: l.cars.map((x, i) => ({
+                x,
+                // truck frequency ramps with difficulty
+                kind: (i % truckEvery === 0
+                        ? 'truck'
+                        : ((l.idx + i) % 2 ? 'red' : 'yellow')) as 'truck' | 'red' | 'yellow'
+              }))
+            };
+          })}
           player={player}
-          onSwipe={(dx: number, dy: number) => moveBy(dx, dy)}
+          rowOffset={rowOffset}
+          onSwipe={moveBy}
         />
       </View>
 
       {/* overlay */}
-      {showOverlay && (
-        <View
-          style={{
-            position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <View
-            style={{
-              backgroundColor: '#0f2033',
-              padding: 20,
-              borderRadius: 12,
-              width: SCREEN_W * 0.88,
-              borderWidth: 1,
-              borderColor: '#2d4f79',
-            }}
-          >
-            <Text
-              style={{
-                color: '#fff', fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 8,
-              }}
-            >
-              {runCount === 0 ? 'Crossy Politician' : (alive ? 'You Win!' : 'Game Over')}
+      {overlay && (
+        <View style={{
+          position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <View style={{
+            backgroundColor: '#0f2033', padding: 20, borderRadius: 12, width: SCREEN_W * 0.88,
+            borderWidth: 1, borderColor: '#2d4f79'
+          }}>
+            <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 8 }}>
+              {runs === 0 ? 'Crossy Politician' : (alive ? 'Paused' : 'Game Over')}
             </Text>
-
-            {runCount > 0 && (
+            {runs > 0 && (
               <Text style={{ color: '#9fd5ff', textAlign: 'center', marginBottom: 16 }}>
-                Runs: {runCount} • Last Score: {score} • Best: {best}
+                Runs: {runs} • Last Score: {score} • Best: {best}
               </Text>
             )}
 
             <Pressable
-              onPress={() => { setShowOverlay(false); setShowLB(false); play('click'); resetRun(); }}
+              onPress={() => { setOverlay(false); setShowLB(false); play('click'); resetRun(); }}
               style={({ pressed }) => ({
                 backgroundColor: pressed ? '#1c3350' : '#11263c',
-                paddingVertical: 14, borderRadius: 10, borderWidth: 1, borderColor: '#2d4f79', marginBottom: 10,
+                paddingVertical: 14, borderRadius: 10, borderWidth: 1, borderColor: '#2d4f79', marginBottom: 10
               })}
             >
               <Text style={{ color: '#9fd5ff', fontSize: 16, fontWeight: '700', textAlign: 'center' }}>
-                {runCount === 0 ? 'Start' : 'Play Again'}
+                {runs === 0 ? 'Start' : 'Play Again'}
               </Text>
             </Pressable>
 
-            {runCount > 0 && (
+            {runs > 0 && (
               <Pressable
-                onPress={handleSubmitScore}
+                onPress={submit}
                 style={({ pressed }) => ({
                   backgroundColor: pressed ? '#17324f' : '#0e2942',
-                  paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#2d4f79', marginBottom: 10,
+                  paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#2d4f79', marginBottom: 10
                 })}
               >
                 <Text style={{ color: '#9fd5ff', textAlign: 'center', fontWeight: '700' }}>
@@ -335,48 +300,16 @@ export default function Game() {
               onPress={() => setShowLB(true)}
               style={({ pressed }) => ({
                 backgroundColor: pressed ? '#17324f' : '#0e2942',
-                paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#2d4f79',
+                paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#2d4f79'
               })}
             >
               <Text style={{ color: '#9fd5ff', textAlign: 'center', fontWeight: '700' }}>
                 View Leaderboard
               </Text>
             </Pressable>
-
-            <Text style={{ color: '#6faee0', fontSize: 12, textAlign: 'center', marginTop: 10 }}>
-              Swipe anywhere to move. Interstitial after every 3 runs. App‑Open ad on launch.
-            </Text>
           </View>
         </View>
       )}
-
-      {/* Modals */}
-      <LeaderboardModal
-        visible={showLB}
-        onClose={() => setShowLB(false)}
-        title="Top Scores"
-        items={lbItemsRemote}
-        footer={
-          <Pressable
-            onPress={() => setShowUsernameModal(true)}
-            style={({ pressed }) => ({
-              backgroundColor: pressed ? '#1c3350' : '#11263c',
-              paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#2d4f79',
-            })}
-          >
-            <Text style={{ color: '#9fd5ff', textAlign: 'center', fontWeight: '700' }}>
-              {username ? `Change Username (${username})` : 'Set Username'}
-            </Text>
-          </Pressable>
-        }
-      />
-
-      <UsernameModal
-        visible={showUsernameModal}
-        initial={username}
-        onSave={handleSaveUsername}
-        onCancel={() => setShowUsernameModal(false)}
-      />
     </View>
   );
 }
