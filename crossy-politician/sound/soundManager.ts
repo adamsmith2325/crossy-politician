@@ -1,25 +1,29 @@
-import { Audio, AVPlaybackSource } from 'expo-av';
+import { Audio } from 'expo-av';
+
+// ✅ adjust the path if your tree is different
+const sMove  = require('../../assets/sounds/move.wav');
+const sHit   = require('../../assets/sounds/hit.wav');
+const sWin   = require('../../assets/sounds/win.wav');
+const sClick = require('../../assets/sounds/click.wav');
 
 const sounds: Record<string, Audio.Sound | null> = { move: null, hit: null, win: null, click: null };
 
-async function loadOne(key: keyof typeof sounds, source: AVPlaybackSource) {
+async function loadOne(key: keyof typeof sounds, src: number) {
   const s = new Audio.Sound();
-  await s.loadAsync(source);
+  await s.loadAsync(src);
   sounds[key] = s;
 }
 
 export async function initSounds() {
   try {
-    await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, shouldDuckAndroid: true, playThroughEarpieceAndroid: false });
+    await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, shouldDuckAndroid: true });
     await Promise.all([
-      loadOne('move', require('../../assets/sounds/move.wav')),
-      loadOne('hit', require('../../assets/sounds/hit.wav')),
-      loadOne('win', require('../../assets/sounds/win.wav')),
-      loadOne('click', require('../../assets/sounds/click.wav')),
+      loadOne('move', sMove),
+      loadOne('hit', sHit),
+      loadOne('win', sWin),
+      loadOne('click', sClick),
     ]);
-  } catch (e) { console.warn('Sound init failed', e); }
+  } catch (e) {
+    console.warn('Sound init failed', e);
+  }
 }
-
-export async function play(key: keyof typeof sounds) { const s = sounds[key]; try { if (s) await s.replayAsync(); } catch {} }
-
-export async function unloadSounds() { try { await Promise.all(Object.values(sounds).map(async (s) => { if (s) await s.unloadAsync(); })); } catch {} }
