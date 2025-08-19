@@ -1,3 +1,4 @@
+// src/game/Game.tsx
 import React, { useEffect, useRef, useState } from 'react';
 import { Dimensions, Pressable, Text, View } from 'react-native';
 import { COLS, ROWS, ROAD_PROBABILITY, MIN_CAR_GAP } from './constants';
@@ -11,7 +12,8 @@ import { initSounds, play, unloadSounds } from '../sound/soundManager';
 import { addScore, loadLeaderboard } from '../utils/leaderboard';
 import LeaderboardModal from '../ui/LeaderboardModal';
 import UsernameModal from '../ui/UsernameModal';
-import { Gesture, GestureDetector, Directions } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { submitScore, fetchTopScores } from '../utils/remoteLeaderboard';
 
@@ -59,7 +61,7 @@ export default function Game() {
   const [showUsernameModal, setShowUsernameModal] = useState(false);
 
   const lastTick = useRef<number>(Date.now());
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load username / best / remote scores on mount
   useEffect(() => {
@@ -130,49 +132,53 @@ export default function Game() {
         setBest(lb.best);
         setShowOverlay(true);
         setShowLB(true);
-        // Refresh remote leaderboards
         const remote = await fetchTopScores(25);
         setLbItemsRemote(remote);
       })();
     }
   }, [alive]);
 
-  // Interstitial
+  // Interstitial cadence
   useEffect(() => { if (showOverlay && runCount > 0) { (async () => { await showInterstitialIfEligible(runCount); })(); } }, [showOverlay, runCount]);
 
   const reset = () => { setLanes(regenerateLanes()); setPlayer({ x: Math.floor(COLS / 2), y: 0 }); setAlive(true); setScore(0); };
 
-  const move = (dx: number, dy: number) => {
+  // *** Movement (called from JS) ***
+  const moveBy = (dx: number, dy: number) => {
     if (!alive || showOverlay) return;
     setPlayer(p => {
-      let nx = Math.max(0, Math.min(COLS - 1, p.x + dx));
-      let ny = Math.max(0, Math.min(ROWS - 1, p.y + dy));
+      const nx = Math.max(0, Math.min(COLS - 1, p.x + dx));
+      const ny = Math.max(0, Math.min(ROWS - 1, p.y + dy));
       if (ny !== p.y && dy > 0) { setScore(s => s + 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); play('move'); }
       else if (nx !== p.x) { Haptics.selectionAsync(); play('move'); }
       return { x: nx, y: ny };
     });
   };
 
-  // Swipe controls
-  const flingUp = Gesture.Fling().direction(Directions.UP).onEnd(() => move(0, 1));
-  const flingDown = Gesture.Fling().direction(Directions.DOWN).onEnd(() => move(0, -1));
-  const flingLeft = Gesture.Fling().direction(Directions.LEFT).onEnd(() => move(-1, 0));
-  const flingRight = Gesture.Fling().direction(Directions.RIGHT).onEnd(() => move(1, 0));
-  const gestures = Gesture.Simultaneous(flingUp, flingDown, flingLeft, flingRight);
+  // *** SWIPE-ONLY controls (no keypad) ***
+  // Use Pan gesture; decide direction by greatest translation axis.
+  const SWIPE_MIN = 12; // px threshold to avoid accidental taps
+  const swipe = Gesture.Pan()
+    .onEnd((e) => {
+      const dx = e.translationX;
+      const dy = e.translationY;
+      if (Math.abs(dx) < SWIPE_MIN && Math.abs(dy) < SWIPE_MIN) return;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        // horizontal
+        if (dx > 0) runOnJS(moveBy)(1, 0);
+        else runOnJS(moveBy)(-1, 0);
+      } else {
+        // vertical (note: swipe up => negative dy)
+        if (dy < 0) runOnJS(moveBy)(0, 1);   // up (forward)
+        else runOnJS(moveBy)(0, -1);        // down (back)
+      }
+    });
 
-  const laneHeight = TILE;
-
-  // Submit score to Supabase, prompting for username if needed
+  // Submit score to Supabase
   const handleSubmitScore = async () => {
-    if (!username) {
-      setShowUsernameModal(true);
-      return;
-    }
+    if (!username) { setShowUsernameModal(true); return; }
     const ok = await submitScore(username, score);
-    if (ok) {
-      const remote = await fetchTopScores(25);
-      setLbItemsRemote(remote);
-    }
+    if (ok) setLbItemsRemote(await fetchTopScores(25));
   };
 
   const handleSaveUsername = async (name: string) => {
@@ -180,24 +186,22 @@ export default function Game() {
     await AsyncStorage.setItem('ct_username', name);
     setUsername(name);
     setShowUsernameModal(false);
-    // Attempt submit again after saving
     const ok = await submitScore(name, score);
-    if (ok) {
-      const remote = await fetchTopScores(25);
-      setLbItemsRemote(remote);
-    }
+    if (ok) setLbItemsRemote(await fetchTopScores(25));
   };
+
+  const laneHeight = TILE;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0b1220', paddingTop: 8, alignItems: 'center' }}>
       {/* Header */}
       <View style={{ width: SCREEN_W, paddingHorizontal: 16, paddingVertical: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700' }}>Crossy Trump</Text>
+        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700' }}>Crossy Politician</Text>
         <Text style={{ color: '#9fd5ff', fontSize: 16 }}>Score: {score}  •  Best: {best}</Text>
       </View>
 
-      {/* Playfield with swipe detector */}
-      <GestureDetector gesture={gestures}>
+      {/* Playfield with SWIPE detector */}
+      <GestureDetector gesture={swipe}>
         <View style={{ width: SCREEN_W, height: laneHeight * ROWS, backgroundColor: '#0b1220' }}>
           {lanes.map((lane, i) => (
             <View key={i} style={{ position: 'absolute', left: 0, top: (ROWS - 1 - lane.idx) * laneHeight, width: '100%' }}>
@@ -217,44 +221,12 @@ export default function Game() {
         </View>
       </GestureDetector>
 
-      {/* On-screen Buttons (also accessible) */}
-      <View style={{ flex: 1, width: SCREEN_W, alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
-          <Pressable onPress={() => { move(0, 1); play('click'); }} style={({pressed}) => ({
-            backgroundColor: pressed ? '#1c3350' : '#11263c',
-            paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: '#264a74'
-          })}>
-            <Text style={{ color: '#9fd5ff', fontWeight: '700' }}>UP</Text>
-          </Pressable>
-        </View>
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <Pressable onPress={() => { move(-1, 0); play('click'); }} style={({pressed}) => ({
-            backgroundColor: pressed ? '#1c3350' : '#11263c',
-            paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: '#264a74'
-          })}>
-            <Text style={{ color: '#9fd5ff', fontWeight: '700' }}>LEFT</Text>
-          </Pressable>
-          <Pressable onPress={() => { move(0, -1); play('click'); }} style={({pressed}) => ({
-            backgroundColor: pressed ? '#1c3350' : '#11263c',
-            paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: '#264a74'
-          })}>
-            <Text style={{ color: '#9fd5ff', fontWeight: '700' }}>DOWN</Text>
-          </Pressable>
-          <Pressable onPress={() => { move(1, 0); play('click'); }} style={({pressed}) => ({
-            backgroundColor: pressed ? '#1c3350' : '#11263c',
-            paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: '#264a74'
-          })}>
-            <Text style={{ color: '#9fd5ff', fontWeight: '700' }}>RIGHT</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Overlay */}
+      {/* Overlay (Start / Game Over / Leaderboard) */}
       {showOverlay && (
         <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' }}>
           <View style={{ backgroundColor: '#0f2033', padding: 20, borderRadius: 12, width: SCREEN_W * 0.88, borderWidth: 1, borderColor: '#2d4f79' }}>
             <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 8 }}>
-              {runCount === 0 ? 'Crossy Trump' : (alive ? 'You Win!' : 'Game Over')}
+              {runCount === 0 ? 'Crossy Politician' : (alive ? 'You Win!' : 'Game Over')}
             </Text>
             {runCount > 0 && (
               <Text style={{ color: '#9fd5ff', textAlign: 'center', marginBottom: 16 }}>
@@ -294,7 +266,7 @@ export default function Game() {
             </Pressable>
 
             <Text style={{ color: '#6faee0', fontSize: 12, textAlign: 'center', marginTop: 10 }}>
-              Swipe or tap buttons. Interstitial after every 3 runs. App Open ad on launch.
+              Swipe anywhere on the playfield to move. Interstitial after every 3 runs. App Open ad on launch.
             </Text>
           </View>
         </View>

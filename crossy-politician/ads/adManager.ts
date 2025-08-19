@@ -21,25 +21,25 @@ export const prepareAds = () => {
     interstitial.load();
   }
 
-  if (!appOpen) {
-    appOpen = AppOpenAd.createForAdRequest(APP_OPEN_AD_UNIT_ID, { requestNonPersonalizedAdsOnly: true });
-    appOpen.addAdEventListener(AdEventType.LOADED, () => (appOpenLoaded = true));
-    appOpen.addAdEventListener(AdEventType.CLOSED, () => {
-      appOpenLoaded = false;
-      appOpen?.load();
-    });
-    appOpen.load();
-  }
+//   if (!appOpen) {
+//     appOpen = AppOpenAd.createForAdRequest(APP_OPEN_AD_UNIT_ID, { requestNonPersonalizedAdsOnly: true });
+//     appOpen.addAdEventListener(AdEventType.LOADED, () => (appOpenLoaded = true));
+//     appOpen.addAdEventListener(AdEventType.CLOSED, () => {
+//       appOpenLoaded = false;
+//       appOpen?.load();
+//     });
+//     appOpen.load();
+//   }
 };
 
-export const showAppOpenOnStart = () => {
-  prepareAds();
-  if (appOpen && appOpenLoaded) {
-    appOpen.show();
-  } else {
-    appOpen?.addAdEventListener(AdEventType.LOADED, () => appOpen?.show());
-  }
-};
+// export const showAppOpenOnStart = () => {
+//   prepareAds();
+//   if (appOpen && appOpenLoaded) {
+//     appOpen.show();
+//   } else {
+//     appOpen?.addAdEventListener(AdEventType.LOADED, () => appOpen?.show());
+//   }
+// };
 
 export const showInterstitialIfEligible = async (runCount: number) => {
   prepareAds();
