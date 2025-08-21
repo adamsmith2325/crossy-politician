@@ -18,6 +18,10 @@ const WORLD_WIDTH = 9;
 export default function VoxelScene({ score, setScore, onGameOver }) {
   const glRef = useRef<any>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const scoreRef = useRef(score);
+  useEffect(() => {
+    scoreRef.current = score;
+  }, [score]);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const playerRef = useRef<THREE.Group | null>(null);
@@ -53,7 +57,11 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
 
     if (dir === 'up') {
       playerRef.current.position.z -= TILE_LENGTH;
-      setScore((s) => s + 1);
+      setScore((s) => {
+        const newScore = s + 1;
+        scoreRef.current = newScore;
+        return newScore;
+      });
     }
     if (dir === 'down') playerRef.current.position.z += TILE_LENGTH;
     if (dir === 'left') playerRef.current.position.x -= LANE_WIDTH;
@@ -199,7 +207,7 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
           lane.vehicles.forEach(vehicle => {
             const vehicleBox = new THREE.Box3().setFromObject(vehicle);
             if (playerBox.intersectsBox(vehicleBox)) {
-              onGameOver(score);
+              onGameOver(scoreRef.current);
             }
           });
         } else if (lane.type === 'grass') {
