@@ -1,22 +1,35 @@
 // src/game/VoxelScene.tsx
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PanResponder, View } from 'react-native';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
+import { buildPlayer } from './components/VoxelPlayer';
+import { buildCar } from './components/VoxelCar';
+import { buildTruck } from './components/VoxelTruck';
+import { buildTree } from './components/VoxelTree';
+import { buildSubway } from './components/VoxelSubway';
+import { buildGrassTile, buildRoadTile } from './components/VoxelTile';
+
+const LANE_WIDTH = 1;
+const TILE_LENGTH = 1;
+const WORLD_WIDTH = 9;
 
 export default function VoxelScene({ score, setScore, onGameOver }) {
   const glRef = useRef<any>(null);
-  const sceneRef = useRef<THREE.Scene>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const playerRef = useRef<THREE.Group | null>(null);
+  const lanesRef = useRef<any[]>([]);
+  const [isAnimating, setIsAnimating] = useState(false);
 
   // simple swipe detection
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: () => true,
       onPanResponderRelease: (_, g) => {
+        if (isAnimating) return;
         const dx = g.dx, dy = g.dy;
         if (Math.abs(dx) > Math.abs(dy)) {
           if (dx > 0) hop('right');
@@ -31,14 +44,20 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
 
   const hop = (dir: 'up' | 'down' | 'left' | 'right') => {
     if (!playerRef.current) return;
-    const step = 1;
+    setIsAnimating(true);
+    const targetZ = playerRef.current.position.z;
+    const targetX = playerRef.current.position.x;
+
     if (dir === 'up') {
-      playerRef.current.position.z -= step;
+      playerRef.current.position.z -= TILE_LENGTH;
       setScore((s) => s + 1);
     }
-    if (dir === 'down') playerRef.current.position.z += step;
-    if (dir === 'left') playerRef.current.position.x -= step;
-    if (dir === 'right') playerRef.current.position.x += step;
+    if (dir === 'down') playerRef.current.position.z += TILE_LENGTH;
+    if (dir === 'left') playerRef.current.position.x -= LANE_WIDTH;
+    if (dir === 'right') playerRef.current.position.x += LANE_WIDTH;
+
+    // simple animation
+    setTimeout(() => setIsAnimating(false), 200);
   };
 
   const onContextCreate = async (gl: any) => {
@@ -58,11 +77,9 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
 
     // lights
     scene.add(new THREE.HemisphereLight(0xffffff, 0x333333, 1));
-
-    // ground
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), new THREE.MeshStandardMaterial({ color: 0x2e7d32 }));
-    ground.rotation.x = -Math.PI / 2;
-    scene.add(ground);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    dirLight.position.set(5, 5, 5);
+    scene.add(dirLight);
 
     // static city skyline (background)
     for (let i = 0; i < 20; i++) {
@@ -77,19 +94,108 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
     }
 
     // player
-    const player = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0x000000 }));
-    const hair = new THREE.Mesh(new THREE.BoxGeometry(1, 0.3, 1), new THREE.MeshStandardMaterial({ color: 0xffa800 }));
-    hair.position.y = 0.65;
-    player.add(body, hair);
-    player.position.y = 0.5;
+    const player = buildPlayer();
+    player.position.z = 10;
     scene.add(player);
     playerRef.current = player;
 
+    // Generate lanes
+    lanesRef.current = [];
+    for (let i = 0; i < 20; i++) {
+      const laneZ = 10 - i * TILE_LENGTH;
+      if (i < 2 || i > 18) { // Safe zones
+        const tile = buildGrassTile(WORLD_WIDTH);
+        tile.position.z = laneZ;
+        scene.add(tile);
+        lanesRef.current.push({ type: 'grass', objects: [] });
+      } else { // Road or grass with trees
+        if (Math.random() > 0.4) { // Road or Subway lane
+          if (Math.random() < 0.2) { // Subway Lane
+            const tile = buildRoadTile(WORLD_WIDTH);
+            tile.position.z = laneZ;
+            scene.add(tile);
+            const speed = (Math.random() * 3 + 2) * (Math.random() > 0.5 ? 1 : -1);
+            const subways = [];
+            for (let j = 0; j < 2; j++) {
+              const subway = buildSubway();
+              subway.position.set(-WORLD_WIDTH / 2 + j * (WORLD_WIDTH + 4), 0.4, laneZ);
+              scene.add(subway);
+              subways.push(subway);
+            }
+            lanesRef.current.push({ type: 'subway', speed, vehicles: subways });
+          } else { // Road lane
+            const tile = buildRoadTile(WORLD_WIDTH);
+            tile.position.z = laneZ;
+            scene.add(tile);
+            const speed = (Math.random() * 2 + 1) * (Math.random() > 0.5 ? 1 : -1);
+            const vehicles = [];
+            for (let j = 0; j < Math.floor(Math.random() * 3) + 1; j++) {
+              const vehicle = Math.random() > 0.3 ? buildCar() : buildTruck();
+              vehicle.position.set(Math.random() * WORLD_WIDTH - WORLD_WIDTH / 2, 0.25, laneZ);
+              scene.add(vehicle);
+              vehicles.push(vehicle);
+            }
+            lanesRef.current.push({ type: 'road', speed, vehicles });
+          }
+        } else { // Grass lane with trees
+          const tile = buildGrassTile(WORLD_WIDTH);
+          tile.position.z = laneZ;
+          scene.add(tile);
+          const trees = [];
+          for (let j = 0; j < Math.floor(Math.random() * 4); j++) {
+            const tree = buildTree();
+            tree.position.set(Math.random() * WORLD_WIDTH - WORLD_WIDTH / 2, 0.5, laneZ);
+            scene.add(tree);
+            trees.push(tree);
+          }
+          lanesRef.current.push({ type: 'grass', objects: trees });
+        }
+      }
+    }
+
     const animate = () => {
       requestAnimationFrame(animate);
-      renderer.render(scene, camera);
-      gl.endFrameEXP();
+      if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) return;
+
+      // animate vehicles
+      lanesRef.current.forEach(lane => {
+        if (lane.type === 'road' || lane.type === 'subway') {
+          lane.vehicles.forEach(vehicle => {
+            vehicle.position.x += lane.speed * 0.016;
+            const boundary = lane.type === 'subway' ? WORLD_WIDTH / 2 + 5 : WORLD_WIDTH / 2 + 2;
+            if (vehicle.position.x > boundary) vehicle.position.x = -boundary;
+            if (vehicle.position.x < -boundary) vehicle.position.x = boundary;
+          });
+        }
+      });
+
+      // Follow player with camera
+      cameraRef.current.position.z = playerRef.current.position.z + 10;
+      cameraRef.current.position.y = playerRef.current.position.y + 5;
+
+
+      // Collision detection
+      const playerBox = new THREE.Box3().setFromObject(playerRef.current);
+      lanesRef.current.forEach(lane => {
+        if (lane.type === 'road' || lane.type === 'subway') {
+          lane.vehicles.forEach(vehicle => {
+            const vehicleBox = new THREE.Box3().setFromObject(vehicle);
+            if (playerBox.intersectsBox(vehicleBox)) {
+              onGameOver(score);
+            }
+          });
+        } else if (lane.type === 'grass') {
+            lane.objects.forEach(tree => {
+                const treeBox = new THREE.Box3().setFromObject(tree);
+                if (playerBox.intersectsBox(treeBox)) {
+                    // block movement
+                }
+            });
+        }
+      });
+
+      rendererRef.current.render(sceneRef.current, cameraRef.current);
+      glRef.current.endFrameEXP();
     };
     animate();
   };
