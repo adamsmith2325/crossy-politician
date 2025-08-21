@@ -15,7 +15,13 @@ const LANE_WIDTH = 1;
 const TILE_LENGTH = 1;
 const WORLD_WIDTH = 9;
 
-export default function VoxelScene({ score, setScore, onGameOver }) {
+interface VoxelSceneProps {
+  score: number;
+  setScore: React.Dispatch<React.SetStateAction<number>>;
+  onGameOver: (finalScore: number) => void;
+}
+
+export default function VoxelScene({ score, setScore, onGameOver }: VoxelSceneProps) {
   const glRef = useRef<any>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const scoreRef = useRef(score);
@@ -51,6 +57,36 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
 
   const hop = (dir: 'up' | 'down' | 'left' | 'right') => {
     if (!playerRef.current || isAnimating) return;
+
+    const targetPosition = playerRef.current.position.clone();
+    if (dir === 'up') targetPosition.z -= TILE_LENGTH;
+    if (dir === 'down') targetPosition.z += TILE_LENGTH;
+    if (dir === 'left') targetPosition.x -= LANE_WIDTH;
+    if (dir === 'right') targetPosition.x += LANE_WIDTH;
+
+    // Check for world boundaries
+    if (Math.abs(targetPosition.x) > WORLD_WIDTH / 2) {
+        return; // Block movement
+    }
+
+    // Check for tree collisions
+    const targetBox = new THREE.Box3().setFromCenterAndSize(
+        targetPosition,
+        new THREE.Vector3(0.5, 0.5, 0.5)
+    );
+
+    for (const lane of lanesRef.current) {
+        if (lane.type === 'grass') {
+            for (const tree of lane.objects) {
+                const treeBox = new THREE.Box3().setFromObject(tree);
+                if (targetBox.intersectsBox(treeBox)) {
+                    return; // Block movement
+                }
+            }
+        }
+    }
+
+
     setIsAnimating(true);
     setIsHopping(true);
     hopStartTime.current = Date.now();
@@ -210,13 +246,6 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
               onGameOver(scoreRef.current);
             }
           });
-        } else if (lane.type === 'grass') {
-            lane.objects.forEach(tree => {
-                const treeBox = new THREE.Box3().setFromObject(tree);
-                if (playerBox.intersectsBox(treeBox)) {
-                    // block movement
-                }
-            });
         }
       });
 
