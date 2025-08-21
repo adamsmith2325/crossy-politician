@@ -1,198 +1,392 @@
-// src/three/VoxelScene.tsx
-import React, { useCallback, useMemo, useRef, useEffect } from 'react';
-import { View } from 'react-native';
+// src/game/VoxelScene.tsx
+import React, { useEffect, useMemo, useRef } from 'react';
+import { PanResponder, View } from 'react-native';
 import { GLView } from 'expo-gl';
-import { Renderer } from 'expo-three';
 import * as THREE from 'three';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS } from 'react-native-reanimated';
 
-import { buildGrassTile, buildRoadTile } from './components/VoxelTile';
-import { buildCar } from './components/VoxelCar';
-import { buildTruck } from './components/VoxelTruck';
-import { buildTree } from './components/VoxelTree';
-import { buildPlayer } from './components/VoxelPlayer';
-
-export type MoveFn = (dx: number, dy: number) => void;
-
-type Lane = {
+// ─── Types coming from Game.tsx ──────────────────────────────────────────────
+type CarKind = 'red' | 'yellow' | 'truck';
+type LaneDTO = {
   type: 'grass' | 'road';
-  cars: { x: number; kind: 'red' | 'yellow' | 'truck' }[];
+  cars: { x: number; kind: CarKind }[];
 };
 
-export default function VoxelScene({
-  lanes,
-  player,
-  onSwipe,
-  cols,
-  visibleRows,
-  rowOffset
-}: {
-  lanes: Lane[];                      // length === visibleRows
-  player: { x: number; y: number };   // y is 0..visibleRows-1
-  onSwipe: MoveFn;
+type Props = {
   cols: number;
   visibleRows: number;
-  rowOffset: number;                  // absolute index of lanes[0] (for camera)
-}) {
-  const swipe = useMemo(
+  lanes: LaneDTO[];
+  player: { x: number; y: number };
+  rowOffset: number;
+  onSwipe: (dx: number, dy: number) => void;
+};
+
+// ─── Colors & materials ──────────────────────────────────────────────────────
+const SKY = new THREE.Color('#0b1220');         // page bg
+const GREEN = new THREE.Color('#1e5d2b');
+const ASPHALT = new THREE.Color('#2b2f34');
+const ROAD_MARK = new THREE.Color('#3a3f45');
+
+const CAR_COLOR: Record<CarKind, THREE.Color> = {
+  red: new THREE.Color('#c24b3a'),
+  yellow: new THREE.Color('#d0ad2f'),
+  truck: new THREE.Color('#bfc4ca'),
+};
+
+const PLAYER_COLORS = {
+  suit: new THREE.Color('#111317'),
+  shirt: new THREE.Color('#e9e9e9'),
+  tie: new THREE.Color('#d0433b'),
+  hair: new THREE.Color('#e39d1a'),
+  face: new THREE.Color('#c8a57e'),
+};
+
+// ─── Small helpers ───────────────────────────────────────────────────────────
+const TILE = 1; // world units per tile
+
+function makeBox(w: number, h: number, d: number, color: THREE.Color | string) {
+  const geom = new THREE.BoxGeometry(w, h, d);
+  const mat = new THREE.MeshStandardMaterial({
+    color: color instanceof THREE.Color ? color : new THREE.Color(color),
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function clearGroup(group: THREE.Group) {
+  for (let i = group.children.length - 1; i >= 0; i--) {
+    const obj = group.children[i] as THREE.Mesh;
+    if (obj.geometry) obj.geometry.dispose();
+    // @ts-ignore
+    if (obj.material?.dispose) obj.material.dispose();
+    group.remove(obj);
+  }
+}
+
+// Ease camera a bit for smooth follow
+function damp(current: number, target: number, lambda: number, dt: number) {
+  return THREE.MathUtils.damp(current, target, lambda, dt);
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+export default function VoxelScene({
+  cols,
+  visibleRows,
+  lanes,
+  player,
+  rowOffset,
+  onSwipe,
+}: Props) {
+  // three refs
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+
+  // world roots
+  const boardRoot = useRef(new THREE.Group());
+  const carsRoot = useRef(new THREE.Group());
+  const bgRoot = useRef(new THREE.Group());
+  const playerRoot = useRef(new THREE.Group());
+
+  // cache previous frame data (to avoid rebuilding everything)
+  const prevJSON = useRef<string>('');
+
+  // ── Swipe handler (up is forward) ──────────────────────────────────────────
+  const pan = useMemo(
     () =>
-      Gesture.Pan().onEnd((e) => {
-        const dx = e.translationX;
-        const dy = e.translationY;
-        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-        if (Math.abs(dx) > Math.abs(dy)) runOnJS(onSwipe)(dx > 0 ? 1 : -1, 0);
-        else runOnJS(onSwipe)(0, dy < 0 ? 1 : -1);
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, g) =>
+          Math.abs(g.dx) > 16 || Math.abs(g.dy) > 16,
+        onPanResponderRelease: (_, g) => {
+          const { dx, dy } = g;
+          if (Math.abs(dx) > Math.abs(dy)) {
+            // left / right
+            if (dx > 16) onSwipe(1, 0);
+            else if (dx < -16) onSwipe(-1, 0);
+          } else {
+            // up (forward) / down (back)
+            if (dy < -16) onSwipe(0, -1);
+            else if (dy > 16) onSwipe(0, 1);
+          }
+        },
       }),
     [onSwipe]
   );
 
-  // ---- refs that hold the latest props for the render loop
-  const lanesRef = useRef(lanes);
-  const playerRef = useRef(player);
-  const colsRef = useRef(cols);
-  const visibleRowsRef = useRef(visibleRows);
-  const rowOffsetRef = useRef(rowOffset);
-  useEffect(() => { lanesRef.current = lanes; }, [lanes]);
-  useEffect(() => { playerRef.current = player; }, [player]);
-  useEffect(() => { colsRef.current = cols; }, [cols]);
-  useEffect(() => { visibleRowsRef.current = visibleRows; }, [visibleRows]);
-  useEffect(() => { rowOffsetRef.current = rowOffset; }, [rowOffset]);
+  // ── Build static city backdrop (once) ──────────────────────────────────────
+  function buildCityBackdrop(parent: THREE.Group) {
+    clearGroup(parent);
+    const cols = [
+      '#223140',
+      '#1c2a39',
+      '#1f3140',
+      '#203346',
+      '#273a4e',
+      '#203243',
+      '#293c51',
+    ];
+    const rnd = THREE.MathUtils.seededRandom;
+    for (let i = 0; i < 22; i++) {
+      const w = 0.8 + rnd() * 1.4;
+      const d = 0.8 + rnd() * 1.4;
+      const h = 4 + rnd() * 11;
+      const box = makeBox(w, h, d, new THREE.Color(cols[i % cols.length]));
+      // ring of buildings around play area
+      const rad = 10 + rnd() * 5;
+      const ang = (i / 22) * Math.PI * 2;
+      box.position.set(Math.cos(ang) * rad, h / 2 - 1.2, Math.sin(ang) * rad);
+      parent.add(box);
+    }
+  }
 
-  const animateRef = useRef<number | null>(null);
+  // ── Player voxel (once) ────────────────────────────────────────────────────
+  function buildPlayer(parent: THREE.Group) {
+    clearGroup(parent);
 
-  const onContextCreate = useCallback(async (gl: any) => {
+    // body
+    const body = makeBox(0.48, 0.6, 0.3, PLAYER_COLORS.suit);
+    body.position.set(0, 0.3, 0);
+    parent.add(body);
+
+    // head
+    const head = makeBox(0.36, 0.34, 0.3, PLAYER_COLORS.face);
+    head.position.set(0, 0.6 + 0.17, 0);
+    parent.add(head);
+
+    // hair (side sweep)
+    const hair = makeBox(0.42, 0.18, 0.34, PLAYER_COLORS.hair);
+    hair.position.set(0.02, 0.6 + 0.34, 0);
+    parent.add(hair);
+
+    // shirt collar
+    const collar = makeBox(0.34, 0.08, 0.26, PLAYER_COLORS.shirt);
+    collar.position.set(0, 0.6 + 0.04, 0);
+    parent.add(collar);
+
+    // tie
+    const tie = makeBox(0.08, 0.22, 0.06, PLAYER_COLORS.tie);
+    tie.position.set(0, 0.6 - 0.1, 0.12);
+    parent.add(tie);
+
+    parent.position.set(0, 0, 0);
+  }
+
+  // ── Board sync (tiles + roads) ─────────────────────────────────────────────
+  function syncBoard(parent: THREE.Group, lanesData: LaneDTO[]) {
+    // regenerate if the layout changed
+    const sig = JSON.stringify(lanesData.map(l => l.type));
+    if ((parent as any)._sig === sig) return;
+
+    clearGroup(parent);
+    (parent as any)._sig = sig;
+
+    for (let r = 0; r < lanesData.length; r++) {
+      const lane = lanesData[r];
+      // lane ground
+      const ground = makeBox(cols * TILE, 0.12, TILE, lane.type === 'road' ? ASPHALT : GREEN);
+      ground.position.set((cols * TILE) / 2 - 0.5, -0.06, r * TILE);
+      ground.receiveShadow = true;
+      parent.add(ground);
+
+      if (lane.type === 'road') {
+        // faint dashed center marks
+        const marks = new THREE.Group();
+        for (let i = 0; i < cols; i++) {
+          const m = makeBox(0.25, 0.02, 0.06, ROAD_MARK);
+          m.position.set(i + 0.5, 0.02, r * TILE);
+          marks.add(m);
+        }
+        parent.add(marks);
+      }
+    }
+  }
+
+  // ── Cars sync (per frame) ──────────────────────────────────────────────────
+  function syncCars(parent: THREE.Group, lanesData: LaneDTO[]) {
+    // lazy pool: one group per lane
+    if (parent.children.length !== lanesData.length) {
+      clearGroup(parent);
+      for (let r = 0; r < lanesData.length; r++) {
+        const g = new THREE.Group();
+        parent.add(g);
+      }
+    }
+
+    for (let r = 0; r < lanesData.length; r++) {
+      const lane = lanesData[r];
+      const laneGroup = parent.children[r] as THREE.Group;
+
+      // ensure car count matches
+      while (laneGroup.children.length < lane.cars.length) laneGroup.add(new THREE.Group());
+      while (laneGroup.children.length > lane.cars.length) {
+        const last = laneGroup.children[laneGroup.children.length - 1] as THREE.Group;
+        clearGroup(last);
+        laneGroup.remove(last);
+      }
+
+      for (let i = 0; i < lane.cars.length; i++) {
+        const carDesc = lane.cars[i];
+        let car = laneGroup.children[i] as THREE.Group;
+        if (car.children.length === 0) {
+          // construct mesh once
+          if (carDesc.kind === 'truck') {
+            const cab = makeBox(0.6, 0.32, 0.32, '#b24b41');
+            cab.position.set(-0.2, 0.16, 0);
+            const bed = makeBox(0.9, 0.30, 0.32, CAR_COLOR.truck);
+            bed.position.set(0.25, 0.15, 0);
+            car.add(cab, bed);
+          } else {
+            const body = makeBox(0.65, 0.28, 0.34, CAR_COLOR[carDesc.kind]);
+            body.position.set(0, 0.15, 0);
+            const roof = makeBox(0.4, 0.1, 0.24, '#dcdcdc');
+            roof.position.set(0, 0.26, 0);
+            car.add(body, roof);
+          }
+        }
+        car.position.set(carDesc.x, 0, r * TILE);
+      }
+    }
+  }
+
+  // ── Camera follow ──────────────────────────────────────────────────────────
+  function updateCamera(cam: THREE.PerspectiveCamera, target: THREE.Vector3, dt = 1 / 60) {
+    // isometric 3/4 view from bottom‑left, looking “forward”
+    const desired = new THREE.Vector3(
+      target.x - 3.8,
+      target.y + 5.2,
+      target.z - 4.2
+    );
+    cam.position.set(
+      damp(cam.position.x, desired.x, 6, dt),
+      damp(cam.position.y, desired.y, 6, dt),
+      damp(cam.position.z, desired.z, 6, dt)
+    );
+    const lookAt = new THREE.Vector3(target.x, target.y + 0.6, target.z + 2.0);
+    cam.lookAt(lookAt);
+  }
+
+  // ── GL bootstrap ───────────────────────────────────────────────────────────
+  const onContextCreate = async (gl: any) => {
     const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;
 
-    const renderer = new Renderer({ gl });
-    renderer.setSize(width, height);
-    renderer.setClearColor(0x0b1220);
+    const renderer = new THREE.WebGLRenderer({
+      canvas: gl.canvas,
+      context: gl,
+      antialias: true,
+      alpha: true,
+    } as any);
+    renderer.setPixelRatio(THREE.MathUtils.clamp(globalThis.devicePixelRatio ?? 1, 1, 2));
+    renderer.setSize(width, height, false);
+    renderer.setClearColor(SKY, 1);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
+    sceneRef.current = scene;
 
-    // Camera & lighting
-    const camera = new THREE.PerspectiveCamera(35, width / height, 0.1, 2000);
-    const amb = new THREE.AmbientLight(0xffffff, 0.7);
-    const dir = new THREE.DirectionalLight(0xffffff, 1.2);
-    dir.position.set(10, 12, 6); dir.castShadow = true;
-    scene.add(amb, dir);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 300);
+    cameraRef.current = camera;
 
-    // Prebuild lane containers so we recycle meshes per row
-    const laneGroups: THREE.Group[] = [];
-    for (let r = 0; r < visibleRowsRef.current; r++) {
-      const g = new THREE.Group();
-      g.position.set(colsRef.current / 2, 0, r + 0.5);
-      scene.add(g);
-      laneGroups.push(g);
-    }
+    // GL‑safe one‑time fit (fix for 0×0 canvas on native)
+    const fit = () => {
+      const w = gl.drawingBufferWidth;
+      const h = gl.drawingBufferHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+    fit();
 
-    // Player
-    const playerMesh = buildPlayer();
-    playerMesh.position.set(playerRef.current.x + 0.5, 0.5, playerRef.current.y + 0.5);
-    scene.add(playerMesh);
+    // lights
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x223344, 0.55);
+    scene.add(hemi);
 
-    // util: reconcile the contents of one lane group with the lane state
-    function patchLaneVisual(rowIndex: number, lane: Lane) {
-      const g = laneGroups[rowIndex];
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(-6, 10, -6);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(1024, 1024);
+    dir.shadow.camera.near = 0.5;
+    dir.shadow.camera.far = 40;
+    scene.add(dir);
 
-      // [0] slot: ground tile
-      // [1..n] slots: obstacles/trees/cars
-      if (g.children.length === 0) {
-        g.add(new THREE.Group()); // placeholder for ground (we’ll replace below)
+    // world roots
+    boardRoot.current.position.set(0, 0, 0);
+    carsRoot.current.position.set(0, 0, 0);
+    playerRoot.current.position.set(0, 0, 0);
+    bgRoot.current.position.set(0, -1.2, 0);
+
+    scene.add(boardRoot.current);
+    scene.add(carsRoot.current);
+    scene.add(playerRoot.current);
+    scene.add(bgRoot.current);
+
+    buildCityBackdrop(bgRoot.current);
+    buildPlayer(playerRoot.current);
+
+    // initial camera placement
+    updateCamera(camera, new THREE.Vector3(0, 0, 0), 1 / 30);
+
+    // render loop
+    let last = Date.now();
+    const loop = () => {
+      const now = Date.now();
+      const dt = Math.min((now - last) / 1000, 0.033);
+      last = now;
+
+      // sync board/cars only if props changed (via prevJSON)
+      const signature = JSON.stringify({
+        l: lanes.map(l => ({ t: l.type, n: l.cars.length })),
+        p: player,
+        r: rowOffset,
+      });
+      if (prevJSON.current !== signature) {
+        prevJSON.current = signature;
+        syncBoard(boardRoot.current, lanes);
+        syncCars(carsRoot.current, lanes);
       }
 
-      // Replace ground if type changed
-      const ground = g.children[0] as THREE.Group;
-      const wantRoad = lane.type === 'road';
-      const isRoad = (ground as any).__isRoad === true;
+      // update player transform
+      playerRoot.current.position.set(player.x, 0, player.y);
 
-      if (wantRoad !== isRoad) {
-        if (ground) g.remove(ground);
-        const newGround = wantRoad ? buildRoadTile(colsRef.current) : buildGrassTile(colsRef.current);
-        (newGround as any).__isRoad = wantRoad;
-        g.add(newGround);
-      }
+      // gentle backdrop parallax: opposite of target
+      bgRoot.current.position.x = -player.x * 0.12;
+      bgRoot.current.position.z = -player.y * 0.08;
 
-      // Clear non-ground children; rebuild quickly (simple and fast enough)
-      for (let i = g.children.length - 1; i >= 1; i--) g.remove(g.children[i]);
-
-      if (lane.type === 'grass') {
-        // sprinkle a couple trees deterministically so it doesn't flicker
-        for (let t = 0; t < 2; t++) {
-          const gx = ((rowOffsetRef.current + rowIndex) * 17 + t * 41) % (colsRef.current - 1);
-          const tree = buildTree();
-          tree.position.set(gx + 0.7, 0.45, 0);
-          g.add(tree);
-        }
-      } else {
-        // add cars
-        lane.cars.forEach((c, i) => {
-          const m = i % 6 === 0 ? buildTruck() : buildCar(i % 2 ? 'red' : 'yellow');
-          m.position.set(c.x + 0.5, i % 6 === 0 ? 0.25 : 0.22, 0);
-          (m as any).__carIndex = i;
-          g.add(m);
-        });
-      }
-    }
-
-    // Initial build
-    for (let r = 0; r < visibleRowsRef.current; r++) {
-      patchLaneVisual(r, lanesRef.current[r]);
-    }
-
-    // Animation loop
-    const clock = new THREE.Clock();
-    const tick = () => {
-      clock.getDelta(); // we don’t need dt here; Game.tsx moved cars already
-
-      // Reconcile + update positions every frame (cheap at this size)
-      for (let r = 0; r < visibleRowsRef.current; r++) {
-        const lane = lanesRef.current[r];
-        patchLaneVisual(r, lane);
-
-        // Update car X positions without rebuilding geometries each frame
-        const g = laneGroups[r];
-        if (lane.type === 'road') {
-          // children[0] = ground, cars start at index 1
-          lane.cars.forEach((car, i) => {
-            const slot = g.children[i + 1];
-            if (slot) slot.position.x = car.x + 0.5;
-          });
-        }
-      }
-
-      // Follow player
-      const p = playerRef.current;
-      playerMesh.position.set(p.x + 0.5, 0.5, p.y + 0.5);
-      const targetZ = p.y + 3.0;
-      camera.position.set(colsRef.current * 0.7, visibleRowsRef.current * 0.9, colsRef.current * 1.2);
-      camera.lookAt(colsRef.current * 0.5, 0, targetZ);
+      // follow player
+      const camTarget = new THREE.Vector3(player.x, 0, player.y);
+      updateCamera(camera, camTarget, dt);
 
       renderer.render(scene, camera);
       gl.endFrameEXP();
-      animateRef.current = requestAnimationFrame(tick);
+      requestAnimationFrame(loop);
     };
-    tick();
+    loop();
+  };
 
-    // Cleanup
+  // ── Cleanup on unmount ─────────────────────────────────────────────────────
+  useEffect(() => {
     return () => {
-      if (animateRef.current) cancelAnimationFrame(animateRef.current);
-      scene.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        (mesh.geometry as any)?.dispose?.();
-        const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(mat)) mat.forEach((m) => (m as any)?.dispose?.());
-        else (mat as any)?.dispose?.();
-      });
-      renderer.dispose();
+      const r = rendererRef.current;
+      const s = sceneRef.current;
+      if (s) {
+        s.traverse(obj => {
+          const m = obj as THREE.Mesh;
+          // @ts-ignore
+          if (m.material?.dispose) m.material.dispose?.();
+          m.geometry?.dispose?.();
+        });
+      }
+      r?.dispose?.();
     };
   }, []);
 
+  // ── Render GLView + full‑screen gesture layer ──────────────────────────────
   return (
-    <GestureDetector gesture={swipe}>
-      <View style={{ flex: 1, backgroundColor: '#0b1220' }}>
-        <GLView style={{ flex: 1 }} onContextCreate={onContextCreate} />
-      </View>
-    </GestureDetector>
+    <View style={{ flex: 1 }}>
+      <GLView style={{ flex: 1 }} onContextCreate={onContextCreate} />
+      <View style={{ position: 'absolute', inset: 0 }} {...pan.panHandlers} />
+    </View>
   );
 }
