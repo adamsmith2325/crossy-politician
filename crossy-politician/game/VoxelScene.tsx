@@ -23,6 +23,9 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
   const playerRef = useRef<THREE.Group | null>(null);
   const lanesRef = useRef<any[]>([]);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isHopping, setIsHopping] = useState(false);
+  const hopStartTime = useRef(0);
+  const hopDuration = 200; // ms
 
   // simple swipe detection
   const panResponder = useRef(
@@ -43,10 +46,10 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
   ).current;
 
   const hop = (dir: 'up' | 'down' | 'left' | 'right') => {
-    if (!playerRef.current) return;
+    if (!playerRef.current || isAnimating) return;
     setIsAnimating(true);
-    const targetZ = playerRef.current.position.z;
-    const targetX = playerRef.current.position.x;
+    setIsHopping(true);
+    hopStartTime.current = Date.now();
 
     if (dir === 'up') {
       playerRef.current.position.z -= TILE_LENGTH;
@@ -56,8 +59,13 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
     if (dir === 'left') playerRef.current.position.x -= LANE_WIDTH;
     if (dir === 'right') playerRef.current.position.x += LANE_WIDTH;
 
-    // simple animation
-    setTimeout(() => setIsAnimating(false), 200);
+    setTimeout(() => {
+      setIsAnimating(false);
+      setIsHopping(false);
+      if (playerRef.current) {
+        playerRef.current.position.y = 0.5; // reset to ground
+      }
+    }, hopDuration);
   };
 
   const onContextCreate = async (gl: any) => {
@@ -156,6 +164,16 @@ export default function VoxelScene({ score, setScore, onGameOver }) {
     const animate = () => {
       requestAnimationFrame(animate);
       if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) return;
+
+      if (isHopping && playerRef.current) {
+        const elapsed = Date.now() - hopStartTime.current;
+        const progress = elapsed / hopDuration;
+        if (progress < 1) {
+          playerRef.current.position.y = 0.5 + Math.sin(progress * Math.PI) * 0.5; // hopHeight = 0.5
+        } else {
+          playerRef.current.position.y = 0.5;
+        }
+      }
 
       // animate vehicles
       lanesRef.current.forEach(lane => {
