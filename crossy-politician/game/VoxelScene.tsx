@@ -28,7 +28,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   useEffect(() => {
     scoreRef.current = score;
   }, [score]);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const playerRef = useRef<THREE.Group | null>(null);
   const lanesRef = useRef<any[]>([]);
@@ -124,10 +124,21 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(50, gl.drawingBufferWidth / gl.drawingBufferHeight, 0.1, 1000);
-    camera.position.set(5, 10, 15);
-    camera.lookAt(0, 0, 0);
+    // Use an orthographic camera
+    const aspect = gl.drawingBufferWidth / gl.drawingBufferHeight;
+    const frustumSize = 18;
+    const camera = new THREE.OrthographicCamera(
+        frustumSize * aspect / -2,
+        frustumSize * aspect / 2,
+        frustumSize / 2,
+        frustumSize / -2,
+        0.1,
+        1000
+    );
+    camera.position.set(10, 10, 10);
+    camera.rotation.set(-Math.PI / 4, Math.PI / 6, 0, 'YXZ');
     cameraRef.current = camera;
+
 
     // lights
     scene.add(new THREE.HemisphereLight(0xffffff, 0x333333, 1));
@@ -229,6 +240,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) return;
 
       const playerZ = playerRef.current.position.z;
+      const playerX = playerRef.current.position.x;
 
       // Dynamic Lane Generation
       const generationThreshold = 15;
@@ -274,11 +286,12 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       });
 
       // Follow player with camera
-      cameraRef.current.position.z = playerRef.current.position.z + 10;
-      cameraRef.current.position.y = playerRef.current.position.y + 5;
+      cameraRef.current.position.x = playerX + 10;
+      cameraRef.current.position.z = playerZ + 10;
 
       if (skylineRef.current) {
-        skylineRef.current.position.z = playerRef.current.position.z;
+        skylineRef.current.position.x = playerX;
+        skylineRef.current.position.z = playerZ;
       }
 
 
