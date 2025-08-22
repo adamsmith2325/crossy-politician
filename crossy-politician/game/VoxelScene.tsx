@@ -36,6 +36,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   const lastGeneratedZ = useRef(10);
   const [isAnimating, setIsAnimating] = useState(false);
   const [isHopping, setIsHopping] = useState(false);
+  const [isGameOver, setIsGameOver] = useState(false);
   const hopStartTime = useRef(0);
   const hopDuration = 200; // ms
 
@@ -302,7 +303,10 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           lane.vehicles.forEach(vehicle => {
             const vehicleBox = new THREE.Box3().setFromObject(vehicle);
             if (playerBox.intersectsBox(vehicleBox)) {
-              onGameOver(scoreRef.current);
+              if (!isGameOver) {
+                setIsGameOver(true);
+                onGameOver(scoreRef.current);
+              }
             }
           });
         }
