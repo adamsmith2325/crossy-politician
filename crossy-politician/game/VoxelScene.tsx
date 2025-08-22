@@ -32,6 +32,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   const rendererRef = useRef<Renderer | null>(null);
   const playerRef = useRef<THREE.Group | null>(null);
   const lanesRef = useRef<any[]>([]);
+  const skylineRef = useRef<THREE.Group | null>(null);
+  const lastGeneratedZ = useRef(10);
   const [isAnimating, setIsAnimating] = useState(false);
   const [isHopping, setIsHopping] = useState(false);
   const hopStartTime = useRef(0);
@@ -134,6 +136,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     scene.add(dirLight);
 
     // static city skyline (background)
+    const skylineGroup = new THREE.Group();
     for (let i = 0; i < 20; i++) {
       const b = new THREE.Mesh(
         new THREE.BoxGeometry(2, Math.random() * 5 + 5, 2),
@@ -142,8 +145,10 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       const angle = (i / 20) * Math.PI * 2;
       const radius = 25;
       b.position.set(Math.cos(angle) * radius, b.geometry.parameters.height / 2, Math.sin(angle) * radius);
-      scene.add(b);
+      skylineGroup.add(b);
     }
+    scene.add(skylineGroup);
+    skylineRef.current = skylineGroup;
 
     // player
     const player = buildPlayer();
@@ -151,63 +156,100 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     scene.add(player);
     playerRef.current = player;
 
-    // Generate lanes
-    lanesRef.current = [];
-    for (let i = 0; i < 20; i++) {
-      const laneZ = 10 - i * TILE_LENGTH;
-      if (i < 2 || i > 18) { // Safe zones
-        const tile = buildGrassTile(WORLD_WIDTH);
-        tile.position.z = laneZ;
-        scene.add(tile);
-        lanesRef.current.push({ type: 'grass', objects: [] });
-      } else { // Road or grass with trees
-        if (Math.random() > 0.4) { // Road or Subway lane
-          if (Math.random() < 0.2) { // Subway Lane
-            const tile = buildRoadTile(WORLD_WIDTH);
+    const generateLane = (laneZ: number, isSafeZone = false) => {
+        const allObjects: THREE.Object3D[] = [];
+        let laneData: any;
+
+        if (isSafeZone) {
+            const tile = buildGrassTile(WORLD_WIDTH);
             tile.position.z = laneZ;
             scene.add(tile);
-            const speed = (Math.random() * 3 + 2) * (Math.random() > 0.5 ? 1 : -1);
-            const subways = [];
-            for (let j = 0; j < 2; j++) {
-              const subway = buildSubway();
-              subway.position.set(-WORLD_WIDTH / 2 + j * (WORLD_WIDTH + 4), 0.4, laneZ);
-              scene.add(subway);
-              subways.push(subway);
+            allObjects.push(tile);
+            laneData = { type: 'grass', objects: [], allObjects, tile };
+        } else {
+            if (Math.random() > 0.4) { // Road or Subway lane
+                const tile = buildRoadTile(WORLD_WIDTH);
+                tile.position.z = laneZ;
+                scene.add(tile);
+                allObjects.push(tile);
+
+                if (Math.random() < 0.2) { // Subway Lane
+                    const speed = (Math.random() * 3 + 2) * (Math.random() > 0.5 ? 1 : -1);
+                    const subways = [];
+                    for (let j = 0; j < 2; j++) {
+                        const subway = buildSubway();
+                        subway.position.set(-WORLD_WIDTH / 2 + j * (WORLD_WIDTH + 4), 0.4, laneZ);
+                        scene.add(subway);
+                        subways.push(subway);
+                        allObjects.push(subway);
+                    }
+                    laneData = { type: 'subway', speed, vehicles: subways, allObjects, tile };
+                } else { // Road lane
+                    const speed = (Math.random() * 2 + 1) * (Math.random() > 0.5 ? 1 : -1);
+                    const vehicles = [];
+                    for (let j = 0; j < Math.floor(Math.random() * 3) + 1; j++) {
+                        const vehicle = Math.random() > 0.3 ? buildCar() : buildTruck();
+                        vehicle.position.set(Math.random() * WORLD_WIDTH - WORLD_WIDTH / 2, 0.25, laneZ);
+                        scene.add(vehicle);
+                        vehicles.push(vehicle);
+                        allObjects.push(vehicle);
+                    }
+                    laneData = { type: 'road', speed, vehicles, allObjects, tile };
+                }
+            } else { // Grass lane with trees
+                const tile = buildGrassTile(WORLD_WIDTH);
+                tile.position.z = laneZ;
+                scene.add(tile);
+                allObjects.push(tile);
+                const trees = [];
+                for (let j = 0; j < Math.floor(Math.random() * 4); j++) {
+                    const tree = buildTree();
+                    tree.position.set(Math.random() * WORLD_WIDTH - WORLD_WIDTH / 2, 0.5, laneZ);
+                    scene.add(tree);
+                    trees.push(tree);
+                    allObjects.push(tree);
+                }
+                laneData = { type: 'grass', objects: trees, allObjects, tile };
             }
-            lanesRef.current.push({ type: 'subway', speed, vehicles: subways });
-          } else { // Road lane
-            const tile = buildRoadTile(WORLD_WIDTH);
-            tile.position.z = laneZ;
-            scene.add(tile);
-            const speed = (Math.random() * 2 + 1) * (Math.random() > 0.5 ? 1 : -1);
-            const vehicles = [];
-            for (let j = 0; j < Math.floor(Math.random() * 3) + 1; j++) {
-              const vehicle = Math.random() > 0.3 ? buildCar() : buildTruck();
-              vehicle.position.set(Math.random() * WORLD_WIDTH - WORLD_WIDTH / 2, 0.25, laneZ);
-              scene.add(vehicle);
-              vehicles.push(vehicle);
-            }
-            lanesRef.current.push({ type: 'road', speed, vehicles });
-          }
-        } else { // Grass lane with trees
-          const tile = buildGrassTile(WORLD_WIDTH);
-          tile.position.z = laneZ;
-          scene.add(tile);
-          const trees = [];
-          for (let j = 0; j < Math.floor(Math.random() * 4); j++) {
-            const tree = buildTree();
-            tree.position.set(Math.random() * WORLD_WIDTH - WORLD_WIDTH / 2, 0.5, laneZ);
-            scene.add(tree);
-            trees.push(tree);
-          }
-          lanesRef.current.push({ type: 'grass', objects: trees });
         }
-      }
+        return laneData;
+    };
+
+    // Initial lane generation
+    lanesRef.current = [];
+    for (let i = 0; i < 30; i++) {
+      const laneZ = 10 - i * TILE_LENGTH;
+      const newLane = generateLane(laneZ, i < 2);
+      lanesRef.current.push(newLane);
+      lastGeneratedZ.current = laneZ;
     }
 
     const animate = () => {
       requestAnimationFrame(animate);
       if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) return;
+
+      const playerZ = playerRef.current.position.z;
+
+      // Dynamic Lane Generation
+      const generationThreshold = 15;
+      if (playerZ < lastGeneratedZ.current + generationThreshold) {
+          for (let i = 0; i < 10; i++) {
+              lastGeneratedZ.current -= TILE_LENGTH;
+              const newLane = generateLane(lastGeneratedZ.current);
+              lanesRef.current.push(newLane);
+          }
+      }
+
+      // Lane Cleanup
+      const cleanupThreshold = 30;
+      lanesRef.current = lanesRef.current.filter(lane => {
+          if (lane.tile.position.z > playerZ + cleanupThreshold) {
+              lane.allObjects.forEach(obj => scene.remove(obj));
+              return false;
+          }
+          return true;
+      });
+
 
       if (isHopping && playerRef.current) {
         const elapsed = Date.now() - hopStartTime.current;
@@ -234,6 +276,10 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       // Follow player with camera
       cameraRef.current.position.z = playerRef.current.position.z + 10;
       cameraRef.current.position.y = playerRef.current.position.y + 5;
+
+      if (skylineRef.current) {
+        skylineRef.current.position.z = playerRef.current.position.z;
+      }
 
 
       // Collision detection
