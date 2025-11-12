@@ -30,6 +30,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     }
   },
   plugins: [
+    "expo-router",
     [
       "react-native-google-mobile-ads",
       {

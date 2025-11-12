@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /s /b c:adamAppsV2crossy-politician*.json)",
+      "Bash(findstr:*)",
+      "Bash(npx expo install:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
