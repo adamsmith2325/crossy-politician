@@ -41,6 +41,12 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   const laneObjectsRef = useRef<THREE.Group[]>([]);
   const buildingsRef = useRef<THREE.Object3D[]>([]);
 
+  // Hit animation state
+  const isGettingHitRef = useRef(false);
+  const hitAnimationTimeRef = useRef(0);
+  const hitDirectionRef = useRef({ x: 0, z: 0 });
+  const hitCarRef = useRef<CarObject | null>(null);
+
   // Initialize sounds and reset game state on mount
   useEffect(() => {
     initSounds();
@@ -50,6 +56,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       // Cleanup on unmount
       gameOverRef.current = false;
       isMovingRef.current = false;
+      isGettingHitRef.current = false;
+      hitAnimationTimeRef.current = 0;
       playerRowRef.current = 0;
       playerColRef.current = Math.floor(COLS / 2);
       lanesRef.current = [];
@@ -64,7 +72,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     PanResponder.create({
       onMoveShouldSetPanResponder: () => true,
       onPanResponderRelease: (_, g) => {
-        if (gameOverRef.current || isMovingRef.current) return;
+        if (gameOverRef.current || isMovingRef.current || isGettingHitRef.current) return;
 
         const dx = g.dx, dy = g.dy;
         const threshold = 30;
@@ -319,8 +327,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     });
   };
 
-  const checkCollision = (): boolean => {
-    if (!playerRef.current) return false;
+  const checkCollision = (): CarObject | null => {
+    if (!playerRef.current) return null;
 
     const playerX = playerRef.current.position.x;
     const playerZ = playerRef.current.position.z;
@@ -335,15 +343,15 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       );
 
       if (distance < collisionRadius) {
-        return true;
+        return car;
       }
     }
 
-    return false;
+    return null;
   };
 
   const hop = (dir: 'up' | 'down' | 'left' | 'right') => {
-    if (gameOverRef.current || isMovingRef.current) return;
+    if (gameOverRef.current || isMovingRef.current || isGettingHitRef.current) return;
 
     const newCol = playerColRef.current;
     const newRow = playerRowRef.current;
@@ -467,10 +475,20 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           isMovingRef.current = false;
 
           // Check collision after movement
-          if (checkCollision() && !gameOverRef.current) {
-            gameOverRef.current = true;
+          const hitCar = checkCollision();
+          if (hitCar && !gameOverRef.current && !isGettingHitRef.current) {
+            // Start hit animation
+            isGettingHitRef.current = true;
+            hitAnimationTimeRef.current = 0;
+            hitCarRef.current = hitCar;
+
+            // Calculate hit direction from car to player
+            const lane = lanesRef.current.find(l => l.idx === hitCar.laneIdx);
+            if (lane) {
+              hitDirectionRef.current = { x: lane.dir * 2, z: 0.5 };
+            }
+
             play('hit');
-            onGameOver(score);
           }
         }
       }
@@ -504,11 +522,50 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       });
 
       // Check collision continuously
-      if (!gameOverRef.current && !isMovingRef.current) {
-        if (checkCollision()) {
-          gameOverRef.current = true;
+      if (!gameOverRef.current && !isMovingRef.current && !isGettingHitRef.current) {
+        const hitCar = checkCollision();
+        if (hitCar) {
+          // Start hit animation
+          isGettingHitRef.current = true;
+          hitAnimationTimeRef.current = 0;
+          hitCarRef.current = hitCar;
+
+          // Calculate hit direction from car to player
+          const lane = lanesRef.current.find(l => l.idx === hitCar.laneIdx);
+          if (lane) {
+            hitDirectionRef.current = { x: lane.dir * 2, z: 0.5 };
+          }
+
           play('hit');
-          onGameOver(score);
+        }
+      }
+
+      // Handle hit animation
+      if (isGettingHitRef.current && playerRef.current) {
+        hitAnimationTimeRef.current += delta;
+        const animTime = hitAnimationTimeRef.current;
+        const animDuration = 0.8; // Animation lasts 0.8 seconds
+
+        if (animTime < animDuration) {
+          // Rotate player (getting knocked over)
+          const rotationProgress = Math.min(animTime / animDuration, 1);
+          playerRef.current.rotation.x = rotationProgress * Math.PI * 0.5; // Rotate 90 degrees
+          playerRef.current.rotation.z = rotationProgress * Math.PI * 0.3; // Slight tilt
+
+          // Move player in hit direction (getting pushed by car)
+          const pushDistance = rotationProgress * 0.5;
+          playerRef.current.position.x += hitDirectionRef.current.x * delta * 2;
+          playerRef.current.position.z += hitDirectionRef.current.z * delta * 2;
+
+          // Make player fall down
+          const fallAmount = Math.sin(rotationProgress * Math.PI) * 0.3;
+          playerRef.current.position.y = 0.5 - fallAmount;
+        } else {
+          // Animation complete - trigger game over
+          if (!gameOverRef.current) {
+            gameOverRef.current = true;
+            onGameOver(score);
+          }
         }
       }
 
