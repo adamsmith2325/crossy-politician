@@ -1,6 +1,6 @@
 // src/game/VoxelScene.tsx
 import React, { useEffect, useRef } from 'react';
-import { PanResponder, View } from 'react-native';
+import { PanResponder, View, Text, StyleSheet } from 'react-native';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
@@ -10,6 +10,17 @@ import { buildTruck } from './components/VoxelTruck';
 import { COLS, MIN_CAR_GAP } from './constants';
 import type { Lane, LaneType } from './types';
 import { initSounds, play } from '../sound/soundManager';
+import {
+  generateRandomEnvironment,
+  getLightingConfig,
+  getBuildingColors,
+  getSeasonalDecoration,
+  createWeatherParticles,
+  updateWeatherParticles,
+  getEnvironmentDescription,
+  type EnvironmentConfig,
+  type BuildingColors,
+} from './environment';
 
 interface CarObject {
   mesh: THREE.Group;
@@ -61,6 +72,11 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   // Track furthest lane generated
   const furthestLaneRef = useRef(-1);
   const furthestBuildingZRef = useRef(0);
+
+  // Environment state
+  const environmentRef = useRef<EnvironmentConfig>(generateRandomEnvironment());
+  const buildingColorsRef = useRef<BuildingColors>(getBuildingColors(environmentRef.current));
+  const weatherParticlesRef = useRef<THREE.Points | null>(null);
 
   // Initialize sounds and reset game state on mount
   useEffect(() => {
@@ -233,54 +249,129 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
   const addBuilding = (scene: THREE.Scene, zPosition: number) => {
     const buildingDistance = 8;
-    const height = 4 + Math.random() * 10;
-    const width = 2 + Math.random() * 2.5;
-    const depth = 2 + Math.random() * 2.5;
+    const colors = buildingColorsRef.current;
+    const season = environmentRef.current.season;
+    const timeOfDay = environmentRef.current.timeOfDay;
 
-    // Buildings on left side
-    const buildingL = new THREE.Mesh(
-      new THREE.BoxGeometry(width, height, depth),
-      new THREE.MeshStandardMaterial({ color: 0x1a2330 })
-    );
-    buildingL.position.set(-buildingDistance, height / 2, zPosition);
-    buildingL.castShadow = true;
-    scene.add(buildingL);
-    buildingsRef.current.push({ mesh: buildingL, zPosition });
+    // Create building for each side
+    [-1, 1].forEach((side) => {
+      const group = new THREE.Group();
 
-    // Buildings on right side
-    const buildingR = new THREE.Mesh(
-      new THREE.BoxGeometry(width, height, depth),
-      new THREE.MeshStandardMaterial({ color: 0x242f3f })
-    );
-    buildingR.position.set(buildingDistance, height / 2, zPosition);
-    buildingR.castShadow = true;
-    scene.add(buildingR);
-    buildingsRef.current.push({ mesh: buildingR, zPosition });
+      const height = 5 + Math.random() * 12;
+      const width = 2.5 + Math.random() * 2;
+      const depth = 2 + Math.random() * 2;
 
-    // Add window details
-    if (Math.random() < 0.7) {
-      const windowCount = Math.floor(height / 0.8);
-      for (let w = 0; w < windowCount; w++) {
-        const isLit = Math.random() < 0.6;
-        const windowColor = isLit ? 0xffd966 : 0x1a1f2a;
+      // Choose random color from palette
+      const primaryColor = colors.primary[Math.floor(Math.random() * colors.primary.length)];
+      const accentColor = colors.accent[Math.floor(Math.random() * colors.accent.length)];
 
-        const windowL = new THREE.Mesh(
-          new THREE.BoxGeometry(0.3, 0.4, 0.05),
-          new THREE.MeshStandardMaterial({ color: windowColor, emissive: isLit ? 0x664400 : 0x000000 })
+      // Main building body
+      const mainBuilding = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, depth),
+        new THREE.MeshStandardMaterial({
+          color: primaryColor,
+          roughness: 0.7,
+          metalness: 0.1
+        })
+      );
+      mainBuilding.position.y = height / 2;
+      mainBuilding.castShadow = true;
+      mainBuilding.receiveShadow = true;
+      group.add(mainBuilding);
+
+      // Add architectural features randomly
+      const buildingStyle = Math.floor(Math.random() * 3);
+
+      // Top accent/crown
+      if (buildingStyle === 0 || buildingStyle === 1) {
+        const crownHeight = height * 0.15;
+        const crown = new THREE.Mesh(
+          new THREE.BoxGeometry(width + 0.2, crownHeight, depth + 0.2),
+          new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.6 })
         );
-        windowL.position.set(-buildingDistance + width / 2 + 0.05, 0.5 + w * 0.8, zPosition);
-        scene.add(windowL);
-        buildingsRef.current.push({ mesh: windowL, zPosition });
-
-        const windowR = new THREE.Mesh(
-          new THREE.BoxGeometry(0.3, 0.4, 0.05),
-          new THREE.MeshStandardMaterial({ color: windowColor, emissive: isLit ? 0x664400 : 0x000000 })
-        );
-        windowR.position.set(buildingDistance - width / 2 - 0.05, 0.5 + w * 0.8, zPosition);
-        scene.add(windowR);
-        buildingsRef.current.push({ mesh: windowR, zPosition });
+        crown.position.y = height + crownHeight / 2 - 0.1;
+        group.add(crown);
+        buildingsRef.current.push({ mesh: crown, zPosition });
       }
-    }
+
+      // Add stepped/terraced design
+      if (buildingStyle === 2 && height > 8) {
+        const stepHeight = height * 0.3;
+        const step = new THREE.Mesh(
+          new THREE.BoxGeometry(width * 0.7, stepHeight, depth * 0.7),
+          new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.7 })
+        );
+        step.position.y = height + stepHeight / 2;
+        group.add(step);
+        buildingsRef.current.push({ mesh: step, zPosition });
+      }
+
+      // Windows - more detailed
+      const floors = Math.floor(height / 1.2);
+      const windowsPerFloor = Math.floor(width / 0.8);
+      const windowLitProbability = timeOfDay === 'night' || timeOfDay === 'evening' ? 0.8 : 0.3;
+
+      for (let floor = 0; floor < floors; floor++) {
+        for (let w = 0; w < windowsPerFloor; w++) {
+          const isLit = Math.random() < windowLitProbability;
+          const windowColor = isLit ? colors.windowLit : colors.windowDark;
+          const emissiveColor = isLit ? colors.windowEmissive : 0x000000;
+
+          // Window on front face
+          const window1 = new THREE.Mesh(
+            new THREE.BoxGeometry(0.4, 0.5, 0.08),
+            new THREE.MeshStandardMaterial({
+              color: windowColor,
+              emissive: emissiveColor,
+              emissiveIntensity: isLit ? 0.5 : 0,
+              roughness: 0.2
+            })
+          );
+          const xOffset = -width / 2 + 0.4 + w * 0.8;
+          const yOffset = 0.6 + floor * 1.2;
+          window1.position.set(xOffset, yOffset, depth / 2 + 0.05);
+          group.add(window1);
+          buildingsRef.current.push({ mesh: window1, zPosition });
+
+          // Window on back face
+          const window2 = window1.clone();
+          window2.position.z = -depth / 2 - 0.05;
+          group.add(window2);
+          buildingsRef.current.push({ mesh: window2, zPosition });
+        }
+      }
+
+      // Add seasonal decoration on roof
+      const decoration = getSeasonalDecoration(season);
+      if (decoration && Math.random() < 0.3) {
+        const decor = new THREE.Mesh(
+          new THREE.BoxGeometry(width, 0.1, depth),
+          new THREE.MeshStandardMaterial({ color: decoration.color, roughness: 0.9 })
+        );
+        decor.position.y = height;
+        group.add(decor);
+        buildingsRef.current.push({ mesh: decor, zPosition });
+      }
+
+      // Add rooftop details (antenna, AC units, etc)
+      if (Math.random() < 0.4) {
+        const rooftopDetail = new THREE.Mesh(
+          new THREE.BoxGeometry(0.3, 1.5, 0.3),
+          new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.8 })
+        );
+        rooftopDetail.position.set(
+          (Math.random() - 0.5) * width * 0.5,
+          height + 0.75,
+          (Math.random() - 0.5) * depth * 0.5
+        );
+        group.add(rooftopDetail);
+        buildingsRef.current.push({ mesh: rooftopDetail, zPosition });
+      }
+
+      group.position.set(buildingDistance * side, 0, zPosition);
+      scene.add(group);
+      buildingsRef.current.push({ mesh: group, zPosition });
+    });
   };
 
   const generateLanesAhead = (scene: THREE.Scene, playerRow: number) => {
@@ -424,14 +515,21 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
   const onContextCreate = async (gl: any) => {
     glRef.current = gl;
+
+    // Get environment and lighting configuration
+    const env = environmentRef.current;
+    const lighting = getLightingConfig(env);
+    console.log('Environment:', getEnvironmentDescription(env));
+
     const renderer = new Renderer({ gl });
     renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
-    renderer.setClearColor(0x0b1220, 1);
+    renderer.setClearColor(lighting.skyColor, 1);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(lighting.fogColor, lighting.fogDensity);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(
@@ -444,11 +542,18 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     camera.lookAt(0, 0, -2);
     cameraRef.current = camera;
 
-    // Lighting - city atmosphere
-    const hemisphereLight = new THREE.HemisphereLight(0x9db4d1, 0x1a2330, 0.8);
+    // Dynamic lighting based on environment
+    const hemisphereLight = new THREE.HemisphereLight(
+      lighting.skyColor,
+      lighting.groundColor,
+      lighting.hemisphereIntensity
+    );
     scene.add(hemisphereLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    const directionalLight = new THREE.DirectionalLight(
+      lighting.directionalColor,
+      lighting.directionalIntensity
+    );
     directionalLight.position.set(5, 10, 5);
     directionalLight.castShadow = true;
     directionalLight.shadow.camera.left = -15;
@@ -459,8 +564,10 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     directionalLight.shadow.camera.far = 50;
     scene.add(directionalLight);
 
-    // Ambient light for city at night
-    const ambientLight = new THREE.AmbientLight(0x404866, 0.4);
+    const ambientLight = new THREE.AmbientLight(
+      lighting.ambientColor,
+      lighting.ambientIntensity
+    );
     scene.add(ambientLight);
 
     // Generate initial lanes
@@ -478,6 +585,14 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     targetPosRef.current = { x: startX, z: startZ };
     scene.add(player);
     playerRef.current = player;
+
+    // Add weather particles
+    const weatherParticles = createWeatherParticles(
+      scene,
+      env.weather,
+      new THREE.Vector3(startX, 0, startZ)
+    );
+    weatherParticlesRef.current = weatherParticles;
 
     let lastTime = Date.now();
 
@@ -580,6 +695,16 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         }
       });
 
+      // Update weather particles
+      if (weatherParticlesRef.current) {
+        updateWeatherParticles(
+          weatherParticlesRef.current,
+          environmentRef.current.weather,
+          delta,
+          playerRef.current.position.z
+        );
+      }
+
       // Check collision continuously when not moving
       if (!gameOverRef.current && !isMovingRef.current && !isGettingHitRef.current) {
         if (checkCollision()) {
@@ -623,6 +748,27 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   return (
     <View style={{ flex: 1 }} {...panResponder.panHandlers}>
       <GLView style={{ flex: 1 }} onContextCreate={onContextCreate} />
+      <View style={styles.environmentOverlay}>
+        <Text style={styles.environmentText}>
+          {getEnvironmentDescription(environmentRef.current)}
+        </Text>
+      </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  environmentOverlay: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 8,
+    borderRadius: 8,
+  },
+  environmentText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+});

@@ -12,18 +12,27 @@ export interface LeaderboardEntry {
  */
 export async function saveScore(username: string, score: number): Promise<boolean> {
   try {
-    const { error } = await supabase
+    console.log('Attempting to save score:', { username, score });
+
+    const { data, error } = await supabase
       .from('leaderboard')
-      .insert([{ username, score }]);
+      .insert([{ username, score }])
+      .select();
 
     if (error) {
-      console.error('Error saving score:', error);
+      console.error('Supabase error saving score:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
       return false;
     }
 
+    console.log('Score saved successfully:', data);
     return true;
   } catch (error) {
-    console.error('Error saving score:', error);
+    console.error('Exception saving score:', error);
     return false;
   }
 }
@@ -33,6 +42,8 @@ export async function saveScore(username: string, score: number): Promise<boolea
  */
 export async function getTopScores(limit: number = 10): Promise<LeaderboardEntry[]> {
   try {
+    console.log('Fetching top scores, limit:', limit);
+
     const { data, error } = await supabase
       .from('leaderboard')
       .select('*')
@@ -40,13 +51,19 @@ export async function getTopScores(limit: number = 10): Promise<LeaderboardEntry
       .limit(limit);
 
     if (error) {
-      console.error('Error fetching leaderboard:', error);
+      console.error('Supabase error fetching leaderboard:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
       return [];
     }
 
+    console.log('Fetched scores:', data?.length || 0, 'entries');
     return data || [];
   } catch (error) {
-    console.error('Error fetching leaderboard:', error);
+    console.error('Exception fetching leaderboard:', error);
     return [];
   }
 }
