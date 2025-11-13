@@ -1,55 +1,241 @@
 // src/game/Game.tsx
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import VoxelScene from './VoxelScene';
+import Leaderboard from '../components/Leaderboard';
+import { saveScore } from '../lib/leaderboard';
+import BannerAd from '../ads/BannerAd';
+import { interstitialAdManager } from '../ads/InterstitialAdManager';
+
+type GameState = 'menu' | 'playing' | 'gameOver';
 
 export default function Game() {
-  const [started, setStarted] = useState(false);
+  const [gameState, setGameState] = useState<GameState>('menu');
   const [score, setScore] = useState(0);
   const [best, setBest] = useState(0);
+  const [username, setUsername] = useState('');
+  const [savedScore, setSavedScore] = useState(false);
+  const [viewingLeaderboard, setViewingLeaderboard] = useState(false);
 
   const startGame = () => {
     setScore(0);
-    setStarted(true);
+    setSavedScore(false);
+    setGameState('playing');
   };
 
   const handleGameOver = (finalScore: number) => {
-    setStarted(false);
+    setGameState('gameOver');
     setBest(Math.max(best, finalScore));
+
+    // Show interstitial ad every 5 games
+    interstitialAdManager.onGameEnd();
   };
 
+  const handleSaveScore = async () => {
+    if (!username.trim()) {
+      alert('Please enter a username');
+      return;
+    }
+
+    const success = await saveScore(username.trim(), score);
+    if (success) {
+      setSavedScore(true);
+      setViewingLeaderboard(true);
+    } else {
+      alert('Failed to save score. Please try again.');
+    }
+  };
+
+  const handleBackToMenu = () => {
+    setGameState('menu');
+    setViewingLeaderboard(false);
+    setSavedScore(false);
+    setUsername('');
+  };
+
+  if (gameState === 'playing') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0b1220' }}>
+        <VoxelScene score={score} setScore={setScore} onGameOver={handleGameOver} />
+        <View style={styles.scoreOverlay}>
+          <Text style={styles.scoreText}>Score: {score}</Text>
+        </View>
+        <View style={styles.bannerContainer}>
+          <BannerAd />
+        </View>
+      </View>
+    );
+  }
+
+  if (gameState === 'gameOver') {
+    if (viewingLeaderboard) {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#0b1220' }}>
+          <Leaderboard currentScore={savedScore ? score : undefined} />
+          <View style={styles.bottomButtonContainer}>
+            <TouchableOpacity style={styles.button} onPress={handleBackToMenu}>
+              <Text style={styles.buttonText}>Back to Menu</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: '#0b1220' }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={styles.menu}>
+          <Text style={styles.title}>Game Over!</Text>
+          <Text style={styles.finalScore}>Score: {score}</Text>
+          {score > best && score > 0 && (
+            <Text style={styles.newBest}>New Personal Best!</Text>
+          )}
+
+          {!savedScore ? (
+            <>
+              <Text style={styles.subtitle}>Save your score</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your name"
+                placeholderTextColor="#6b7888"
+                value={username}
+                onChangeText={setUsername}
+                maxLength={20}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity style={styles.button} onPress={handleSaveScore}>
+                <Text style={styles.buttonText}>Save & View Leaderboard</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => setViewingLeaderboard(true)}>
+                <Text style={styles.secondaryButtonText}>View Leaderboard</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity style={styles.button} onPress={() => setViewingLeaderboard(true)}>
+              <Text style={styles.buttonText}>View Leaderboard</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity style={styles.secondaryButton} onPress={startGame}>
+            <Text style={styles.secondaryButtonText}>Play Again</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleBackToMenu}>
+            <Text style={styles.secondaryButtonText}>Main Menu</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // Menu state
   return (
     <View style={{ flex: 1, backgroundColor: '#0b1220' }}>
-      {!started ? (
-        <View style={styles.menu}>
-          <Text style={styles.title}>Crossy Politician</Text>
-          <Text style={styles.subtitle}>Navigate the city streets!</Text>
-          <TouchableOpacity style={styles.button} onPress={startGame}>
-            <Text style={styles.buttonText}>Start</Text>
-          </TouchableOpacity>
-          {best > 0 && <Text style={styles.best}>Best Score: {best}</Text>}
-          {score > 0 && <Text style={styles.lastScore}>Last Score: {score}</Text>}
-        </View>
-      ) : (
-        <>
-          <VoxelScene score={score} setScore={setScore} onGameOver={handleGameOver} />
-          <View style={styles.scoreOverlay}>
-            <Text style={styles.scoreText}>Score: {score}</Text>
+      <View style={styles.menu}>
+        <Text style={styles.title}>Crossy Politician</Text>
+        <Text style={styles.subtitle}>Navigate the city streets!</Text>
+        <TouchableOpacity style={styles.button} onPress={startGame}>
+          <Text style={styles.buttonText}>Start Game</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.secondaryButton} onPress={() => setViewingLeaderboard(true)}>
+          <Text style={styles.secondaryButtonText}>Leaderboard</Text>
+        </TouchableOpacity>
+        {best > 0 && <Text style={styles.best}>Personal Best: {best}</Text>}
+      </View>
+
+      {viewingLeaderboard && (
+        <View style={styles.leaderboardOverlay}>
+          <View style={styles.leaderboardContainer}>
+            <Leaderboard />
+            <TouchableOpacity style={styles.closeButton} onPress={() => setViewingLeaderboard(false)}>
+              <Text style={styles.buttonText}>Close</Text>
+            </TouchableOpacity>
           </View>
-        </>
+        </View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  menu: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  title: { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 10 },
-  subtitle: { fontSize: 16, color: '#9db4d1', marginBottom: 30 },
-  button: { backgroundColor: '#1e90ff', padding: 14, paddingHorizontal: 40, borderRadius: 8, marginBottom: 20 },
-  buttonText: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  best: { fontSize: 18, color: '#ffd966', fontWeight: 'bold', marginBottom: 8 },
-  lastScore: { fontSize: 16, color: '#aaa' },
+  menu: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 10
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#9db4d1',
+    marginBottom: 30
+  },
+  finalScore: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#1e90ff',
+    marginBottom: 10,
+  },
+  newBest: {
+    fontSize: 20,
+    color: '#ffd966',
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  input: {
+    backgroundColor: '#1a2330',
+    color: '#fff',
+    fontSize: 18,
+    padding: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    width: '100%',
+    maxWidth: 300,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#2a3a50',
+  },
+  button: {
+    backgroundColor: '#1e90ff',
+    padding: 14,
+    paddingHorizontal: 40,
+    borderRadius: 8,
+    marginBottom: 12,
+    minWidth: 200,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold'
+  },
+  secondaryButton: {
+    backgroundColor: '#2a3a50',
+    padding: 12,
+    paddingHorizontal: 30,
+    borderRadius: 8,
+    marginBottom: 12,
+    minWidth: 200,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#9db4d1',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  best: {
+    fontSize: 18,
+    color: '#ffd966',
+    fontWeight: 'bold',
+    marginTop: 20
+  },
   scoreOverlay: {
     position: 'absolute',
     top: 50,
@@ -64,5 +250,41 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
     textShadowOffset: { width: -1, height: 1 },
     textShadowRadius: 10,
+  },
+  bannerContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  leaderboardOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(11, 18, 32, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  leaderboardContainer: {
+    width: '90%',
+    height: '80%',
+    backgroundColor: '#0b1220',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: '#1e90ff',
+  },
+  closeButton: {
+    backgroundColor: '#1e90ff',
+    padding: 14,
+    borderRadius: 8,
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  bottomButtonContainer: {
+    padding: 20,
+    backgroundColor: '#0b1220',
   },
 });

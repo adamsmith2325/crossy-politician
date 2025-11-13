@@ -34,7 +34,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "react-native-google-mobile-ads",
       {
           androidAppId: "ca-app-pub-5901242452853695~2399952491",
-          iosAppId: "ca-app-pub-5901242452853695~2944530360",
+          iosAppId: "ca-app-pub-5901242452853695~3024314584",
       }
     ],
     "expo-tracking-transparency"
