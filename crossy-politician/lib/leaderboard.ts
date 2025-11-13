@@ -14,25 +14,36 @@ export async function saveScore(username: string, score: number): Promise<boolea
   try {
     console.log('Attempting to save score:', { username, score });
 
+    // Check if supabase is initialized
+    if (!supabase) {
+      console.error('Supabase client not initialized');
+      return false;
+    }
+
     const { data, error } = await supabase
-      .from('leaderboard')
-      .insert([{ username, score }])
+      .from('crossytrump_scores')
+      .insert({ username, score })
       .select();
 
     if (error) {
       console.error('Supabase error saving score:', {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code
+        fullError: JSON.stringify(error),
+        message: error?.message || 'No message',
+        details: error?.details || 'No details',
+        hint: error?.hint || 'No hint',
+        code: error?.code || 'No code'
       });
       return false;
     }
 
     console.log('Score saved successfully:', data);
     return true;
-  } catch (error) {
-    console.error('Exception saving score:', error);
+  } catch (error: any) {
+    console.error('Exception saving score:', {
+      error: error,
+      message: error?.message,
+      stack: error?.stack
+    });
     return false;
   }
 }
@@ -45,7 +56,7 @@ export async function getTopScores(limit: number = 10): Promise<LeaderboardEntry
     console.log('Fetching top scores, limit:', limit);
 
     const { data, error } = await supabase
-      .from('leaderboard')
+      .from('crossytrump_scores')
       .select('*')
       .order('score', { ascending: false })
       .limit(limit);
@@ -74,7 +85,7 @@ export async function getTopScores(limit: number = 10): Promise<LeaderboardEntry
 export async function getPersonalBest(username: string): Promise<number> {
   try {
     const { data, error } = await supabase
-      .from('leaderboard')
+      .from('crossytrump_scores')
       .select('score')
       .eq('username', username)
       .order('score', { ascending: false })

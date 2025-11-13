@@ -306,9 +306,9 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         buildingsRef.current.push({ mesh: step, zPosition });
       }
 
-      // Windows - more detailed
-      const floors = Math.floor(height / 1.2);
-      const windowsPerFloor = Math.floor(width / 0.8);
+      // Windows - optimized (fewer windows, only front face)
+      const floors = Math.min(Math.floor(height / 1.8), 5); // Max 5 floors
+      const windowsPerFloor = Math.min(Math.floor(width / 1.5), 2); // Max 2 windows
       const windowLitProbability = timeOfDay === 'night' || timeOfDay === 'evening' ? 0.8 : 0.3;
 
       for (let floor = 0; floor < floors; floor++) {
@@ -317,33 +317,27 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           const windowColor = isLit ? colors.windowLit : colors.windowDark;
           const emissiveColor = isLit ? colors.windowEmissive : 0x000000;
 
-          // Window on front face
+          // Only front face window
           const window1 = new THREE.Mesh(
             new THREE.BoxGeometry(0.4, 0.5, 0.08),
             new THREE.MeshStandardMaterial({
               color: windowColor,
               emissive: emissiveColor,
-              emissiveIntensity: isLit ? 0.5 : 0,
-              roughness: 0.2
+              emissiveIntensity: isLit ? 0.4 : 0,
+              roughness: 0.3
             })
           );
-          const xOffset = -width / 2 + 0.4 + w * 0.8;
-          const yOffset = 0.6 + floor * 1.2;
+          const xOffset = -width / 2 + 0.6 + w * 1.5;
+          const yOffset = 1 + floor * 1.8;
           window1.position.set(xOffset, yOffset, depth / 2 + 0.05);
           group.add(window1);
           buildingsRef.current.push({ mesh: window1, zPosition });
-
-          // Window on back face
-          const window2 = window1.clone();
-          window2.position.z = -depth / 2 - 0.05;
-          group.add(window2);
-          buildingsRef.current.push({ mesh: window2, zPosition });
         }
       }
 
-      // Add seasonal decoration on roof
+      // Add seasonal decoration on roof (reduced probability)
       const decoration = getSeasonalDecoration(season);
-      if (decoration && Math.random() < 0.3) {
+      if (decoration && Math.random() < 0.15) {
         const decor = new THREE.Mesh(
           new THREE.BoxGeometry(width, 0.1, depth),
           new THREE.MeshStandardMaterial({ color: decoration.color, roughness: 0.9 })
@@ -353,8 +347,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         buildingsRef.current.push({ mesh: decor, zPosition });
       }
 
-      // Add rooftop details (antenna, AC units, etc)
-      if (Math.random() < 0.4) {
+      // Add rooftop details (reduced probability for performance)
+      if (Math.random() < 0.2) {
         const rooftopDetail = new THREE.Mesh(
           new THREE.BoxGeometry(0.3, 1.5, 0.3),
           new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.8 })
@@ -390,7 +384,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   const generateBuildingsAhead = (scene: THREE.Scene, playerZ: number) => {
     const lookAhead = 60; // Generate buildings 60 units ahead
     const targetZ = playerZ - lookAhead;
-    const buildingSpacing = 2.5;
+    const buildingSpacing = 3.5; // Increased spacing for fewer buildings
 
     // Generate buildings up to target
     while (furthestBuildingZRef.current > targetZ) {
@@ -524,8 +518,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     const renderer = new Renderer({ gl });
     renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
     renderer.setClearColor(lighting.skyColor, 1);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Disable shadows for better performance
+    renderer.shadowMap.enabled = false;
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
@@ -555,13 +549,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       lighting.directionalIntensity
     );
     directionalLight.position.set(5, 10, 5);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.camera.left = -15;
-    directionalLight.shadow.camera.right = 15;
-    directionalLight.shadow.camera.top = 15;
-    directionalLight.shadow.camera.bottom = -15;
-    directionalLight.shadow.camera.near = 0.1;
-    directionalLight.shadow.camera.far = 50;
+    // Shadows disabled for performance
+    directionalLight.castShadow = false;
     scene.add(directionalLight);
 
     const ambientLight = new THREE.AmbientLight(
@@ -714,23 +703,83 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         }
       }
 
-      // Handle hit animation
+      // Handle violent hit animation
       if (isGettingHitRef.current) {
         hitAnimationTimeRef.current += delta;
         const animTime = hitAnimationTimeRef.current;
-        const animDuration = 0.8;
+        const animDuration = 1.2; // Longer for more dramatic effect
 
         if (animTime < animDuration) {
-          const rotationProgress = Math.min(animTime / animDuration, 1);
-          playerRef.current.rotation.x = rotationProgress * Math.PI * 0.5;
-          playerRef.current.rotation.z = rotationProgress * Math.PI * 0.3;
+          const progress = Math.min(animTime / animDuration, 1);
 
-          playerRef.current.position.x += hitDirectionRef.current.x * delta * 2;
-          playerRef.current.position.z += hitDirectionRef.current.z * delta * 2;
+          // Phase 1: Initial impact (0-0.3s) - violent spin and launch
+          if (animTime < 0.3) {
+            const impactProgress = animTime / 0.3;
 
-          const fallAmount = Math.sin(rotationProgress * Math.PI) * 0.3;
-          playerRef.current.position.y = 0.5 - fallAmount;
+            // Violent spinning in multiple axes
+            playerRef.current.rotation.x = impactProgress * Math.PI * 3; // Multiple flips
+            playerRef.current.rotation.y = impactProgress * Math.PI * 2; // Spin
+            playerRef.current.rotation.z = impactProgress * Math.PI * 2.5; // Roll
+
+            // Launch upward violently
+            const launchHeight = Math.sin(impactProgress * Math.PI) * 2.5;
+            playerRef.current.position.y = 0.5 + launchHeight;
+
+            // Fly backwards from impact
+            playerRef.current.position.x += hitDirectionRef.current.x * delta * 8;
+            playerRef.current.position.z += hitDirectionRef.current.z * delta * 8;
+
+            // Squash on impact
+            const squash = 1 - impactProgress * 0.4;
+            playerRef.current.scale.set(1.2, squash, 1.2);
+          }
+          // Phase 2: Airborne rotation (0.3-0.8s) - continue spinning while flying
+          else if (animTime < 0.8) {
+            const airProgress = (animTime - 0.3) / 0.5;
+
+            // Continue spinning but slowing down
+            playerRef.current.rotation.x = Math.PI * 3 + airProgress * Math.PI * 2;
+            playerRef.current.rotation.y = Math.PI * 2 + airProgress * Math.PI;
+            playerRef.current.rotation.z = Math.PI * 2.5 + airProgress * Math.PI * 1.5;
+
+            // Arc trajectory - go up then start falling
+            const arc = 2.5 * (1 - airProgress); // Fall from peak
+            playerRef.current.position.y = 0.5 + arc;
+
+            // Continue flying but slowing down
+            playerRef.current.position.x += hitDirectionRef.current.x * delta * (4 - airProgress * 3);
+            playerRef.current.position.z += hitDirectionRef.current.z * delta * (4 - airProgress * 3);
+
+            // Return to normal scale
+            playerRef.current.scale.set(1, 1, 1);
+          }
+          // Phase 3: Crash landing (0.8-1.2s) - tumble and settle
+          else {
+            const landProgress = (animTime - 0.8) / 0.4;
+
+            // Final tumbles
+            playerRef.current.rotation.x = Math.PI * 5 + landProgress * Math.PI * 0.5;
+            playerRef.current.rotation.y = Math.PI * 3 + landProgress * Math.PI * 0.3;
+            playerRef.current.rotation.z = Math.PI * 4 + landProgress * Math.PI * 0.4;
+
+            // Hit ground and bounce slightly
+            const bounce = Math.max(0, Math.sin(landProgress * Math.PI * 2) * 0.3 * (1 - landProgress));
+            playerRef.current.position.y = Math.max(-0.2, bounce - landProgress * 0.5);
+
+            // Slide to stop
+            playerRef.current.position.x += hitDirectionRef.current.x * delta * (1 - landProgress);
+            playerRef.current.position.z += hitDirectionRef.current.z * delta * (1 - landProgress);
+
+            // Squash on landing
+            if (landProgress < 0.5) {
+              const squashAmount = Math.sin(landProgress * Math.PI * 2) * 0.3;
+              playerRef.current.scale.set(1 + squashAmount, 1 - squashAmount, 1 + squashAmount);
+            } else {
+              playerRef.current.scale.set(1, 1, 1);
+            }
+          }
         } else {
+          // Animation complete
           if (!gameOverRef.current) {
             gameOverRef.current = true;
             onGameOver(score);
