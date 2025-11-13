@@ -532,7 +532,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       0.1,
       1000
     );
-    camera.position.set(4, 4, 5);
+    // Adjusted camera position to prevent seeing through buildings
+    camera.position.set(3, 5, 6);
     camera.lookAt(0, 0, -2);
     cameraRef.current = camera;
 
@@ -658,18 +659,40 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         }
       }
 
-      // Update camera to follow player with side angle
-      const targetCamZ = playerRef.current.position.z + 5;
-      const targetCamX = playerRef.current.position.x + 4;
-      const targetCamY = 4;
+      // Update camera to follow player
+      if (!isGettingHitRef.current) {
+        // Normal camera follow
+        const targetCamZ = playerRef.current.position.z + 6;
+        const targetCamX = playerRef.current.position.x + 3;
+        const targetCamY = 5;
 
-      cameraRef.current.position.x += (targetCamX - cameraRef.current.position.x) * 0.1;
-      cameraRef.current.position.z += (targetCamZ - cameraRef.current.position.z) * 0.1;
-      cameraRef.current.position.y += (targetCamY - cameraRef.current.position.y) * 0.1;
+        cameraRef.current.position.x += (targetCamX - cameraRef.current.position.x) * 0.1;
+        cameraRef.current.position.z += (targetCamZ - cameraRef.current.position.z) * 0.1;
+        cameraRef.current.position.y += (targetCamY - cameraRef.current.position.y) * 0.1;
 
-      const lookAtX = playerRef.current.position.x;
-      const lookAtZ = playerRef.current.position.z - 2;
-      cameraRef.current.lookAt(lookAtX, 0.5, lookAtZ);
+        const lookAtX = playerRef.current.position.x;
+        const lookAtZ = playerRef.current.position.z - 2;
+        cameraRef.current.lookAt(lookAtX, 0.5, lookAtZ);
+      } else {
+        // Death camera - orbit around the dead player
+        const deathCamProgress = Math.min(hitAnimationTimeRef.current / 1.2, 1);
+
+        // Move camera to focus on player
+        const targetCamX = playerRef.current.position.x + 2 + Math.cos(deathCamProgress * Math.PI * 0.5) * 2;
+        const targetCamZ = playerRef.current.position.z + 3 + Math.sin(deathCamProgress * Math.PI * 0.5) * 2;
+        const targetCamY = 3 + deathCamProgress * 1;
+
+        cameraRef.current.position.x += (targetCamX - cameraRef.current.position.x) * 0.15;
+        cameraRef.current.position.z += (targetCamZ - cameraRef.current.position.z) * 0.15;
+        cameraRef.current.position.y += (targetCamY - cameraRef.current.position.y) * 0.15;
+
+        // Look directly at the player's body
+        cameraRef.current.lookAt(
+          playerRef.current.position.x,
+          playerRef.current.position.y,
+          playerRef.current.position.z
+        );
+      }
 
       // Update cars
       carsRef.current.forEach(car => {
@@ -703,11 +726,15 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         }
       }
 
-      // Handle violent hit animation
+      // Handle violent hit animation with boundary collision
       if (isGettingHitRef.current) {
         hitAnimationTimeRef.current += delta;
         const animTime = hitAnimationTimeRef.current;
-        const animDuration = 1.2; // Longer for more dramatic effect
+        const animDuration = 1.2;
+
+        // Play area boundaries (based on building distance)
+        const boundaryLeft = -3.5;
+        const boundaryRight = 3.5;
 
         if (animTime < animDuration) {
           const progress = Math.min(animTime / animDuration, 1);
@@ -717,43 +744,64 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
             const impactProgress = animTime / 0.3;
 
             // Violent spinning in multiple axes
-            playerRef.current.rotation.x = impactProgress * Math.PI * 3; // Multiple flips
-            playerRef.current.rotation.y = impactProgress * Math.PI * 2; // Spin
-            playerRef.current.rotation.z = impactProgress * Math.PI * 2.5; // Roll
+            playerRef.current.rotation.x = impactProgress * Math.PI * 3;
+            playerRef.current.rotation.y = impactProgress * Math.PI * 2;
+            playerRef.current.rotation.z = impactProgress * Math.PI * 2.5;
 
             // Launch upward violently
             const launchHeight = Math.sin(impactProgress * Math.PI) * 2.5;
             playerRef.current.position.y = 0.5 + launchHeight;
 
-            // Fly backwards from impact
-            playerRef.current.position.x += hitDirectionRef.current.x * delta * 8;
+            // Fly backwards from impact with boundary check
+            const newX = playerRef.current.position.x + hitDirectionRef.current.x * delta * 8;
+
+            // Check for building collision and bounce
+            if (newX < boundaryLeft) {
+              playerRef.current.position.x = boundaryLeft;
+              hitDirectionRef.current.x = -hitDirectionRef.current.x * 0.6; // Reverse and reduce
+            } else if (newX > boundaryRight) {
+              playerRef.current.position.x = boundaryRight;
+              hitDirectionRef.current.x = -hitDirectionRef.current.x * 0.6;
+            } else {
+              playerRef.current.position.x = newX;
+            }
+
             playerRef.current.position.z += hitDirectionRef.current.z * delta * 8;
 
             // Squash on impact
             const squash = 1 - impactProgress * 0.4;
             playerRef.current.scale.set(1.2, squash, 1.2);
           }
-          // Phase 2: Airborne rotation (0.3-0.8s) - continue spinning while flying
+          // Phase 2: Airborne rotation (0.3-0.8s)
           else if (animTime < 0.8) {
             const airProgress = (animTime - 0.3) / 0.5;
 
-            // Continue spinning but slowing down
+            // Continue spinning
             playerRef.current.rotation.x = Math.PI * 3 + airProgress * Math.PI * 2;
             playerRef.current.rotation.y = Math.PI * 2 + airProgress * Math.PI;
             playerRef.current.rotation.z = Math.PI * 2.5 + airProgress * Math.PI * 1.5;
 
-            // Arc trajectory - go up then start falling
-            const arc = 2.5 * (1 - airProgress); // Fall from peak
+            // Arc trajectory
+            const arc = 2.5 * (1 - airProgress);
             playerRef.current.position.y = 0.5 + arc;
 
-            // Continue flying but slowing down
-            playerRef.current.position.x += hitDirectionRef.current.x * delta * (4 - airProgress * 3);
-            playerRef.current.position.z += hitDirectionRef.current.z * delta * (4 - airProgress * 3);
+            // Continue flying with boundary check
+            const newX = playerRef.current.position.x + hitDirectionRef.current.x * delta * (4 - airProgress * 3);
 
-            // Return to normal scale
+            if (newX < boundaryLeft) {
+              playerRef.current.position.x = boundaryLeft;
+              hitDirectionRef.current.x = -hitDirectionRef.current.x * 0.5;
+            } else if (newX > boundaryRight) {
+              playerRef.current.position.x = boundaryRight;
+              hitDirectionRef.current.x = -hitDirectionRef.current.x * 0.5;
+            } else {
+              playerRef.current.position.x = newX;
+            }
+
+            playerRef.current.position.z += hitDirectionRef.current.z * delta * (4 - airProgress * 3);
             playerRef.current.scale.set(1, 1, 1);
           }
-          // Phase 3: Crash landing (0.8-1.2s) - tumble and settle
+          // Phase 3: Crash landing (0.8-1.2s)
           else {
             const landProgress = (animTime - 0.8) / 0.4;
 
@@ -762,12 +810,21 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
             playerRef.current.rotation.y = Math.PI * 3 + landProgress * Math.PI * 0.3;
             playerRef.current.rotation.z = Math.PI * 4 + landProgress * Math.PI * 0.4;
 
-            // Hit ground and bounce slightly
+            // Hit ground and bounce
             const bounce = Math.max(0, Math.sin(landProgress * Math.PI * 2) * 0.3 * (1 - landProgress));
             playerRef.current.position.y = Math.max(-0.2, bounce - landProgress * 0.5);
 
-            // Slide to stop
-            playerRef.current.position.x += hitDirectionRef.current.x * delta * (1 - landProgress);
+            // Slide to stop with boundary check
+            const newX = playerRef.current.position.x + hitDirectionRef.current.x * delta * (1 - landProgress);
+
+            if (newX < boundaryLeft) {
+              playerRef.current.position.x = boundaryLeft;
+            } else if (newX > boundaryRight) {
+              playerRef.current.position.x = boundaryRight;
+            } else {
+              playerRef.current.position.x = newX;
+            }
+
             playerRef.current.position.z += hitDirectionRef.current.z * delta * (1 - landProgress);
 
             // Squash on landing
