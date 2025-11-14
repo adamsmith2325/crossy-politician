@@ -5,7 +5,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: "Crossy Politician",
   slug: "crossy-politician",
   scheme: "crossypolitician",
-  version: "1.0.0",
+  version: "1.0.1",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
   icon: "./assets/icon.png",
@@ -37,7 +37,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           iosAppId: "ca-app-pub-5901242452853695~3024314584",
       }
     ],
-    "expo-tracking-transparency"
+    "expo-tracking-transparency",
+    "expo-asset",
+    "expo-router"
   ],
   extra: {
     // Fill these via EXPO_PUBLIC_* env vars at build time or edit here.

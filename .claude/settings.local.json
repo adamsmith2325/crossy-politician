@@ -7,7 +7,12 @@
       "Bash(git add:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nFix iOS build error with expo-gl C++ const std::string\n\nFixed static assertion error in expo-gl by removing const from\nstd::set<const std::string> declaration in EXGLNativeContext.h.\n\nChanges:\n- Updated expo-gl from 13.6.0 to 14.0.2\n- Installed patch-package to apply C++ fix\n- Created patch to change std::set<const std::string> to std::set<std::string>\n- Added postinstall script to apply patches automatically\n\nThis resolves the Xcode build failure with iOS SDK 18.5.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(git push)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nAdd comprehensive error handling and logging for VoxelScene rendering\n\nFixed production build issue where VoxelScene wasn''t rendering:\n- Added try-catch blocks around onContextCreate initialization\n- Added error handling in animation loop\n- Added detailed console logging at each initialization step\n- Added component mount/unmount logging\n- Added gameKey prop to force proper remount on game start\n- Imported Alert API for user-facing error messages\n\nThis will help debug why the scene doesn''t render in production builds\nand provide better error feedback to developers and users.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd comprehensive error handling and logging for VoxelScene rendering\n\nFixed production build issue where VoxelScene wasn''t rendering:\n- Added try-catch blocks around onContextCreate initialization\n- Added error handling in animation loop\n- Added detailed console logging at each initialization step\n- Added component mount/unmount logging\n- Added gameKey prop to force proper remount on game start\n- Imported Alert API for user-facing error messages\n\nThis will help debug why the scene doesn''t render in production builds\nand provide better error feedback to developers and users.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(npx expo-doctor:*)",
+      "Bash(npx expo install:*)",
+      "Bash(cat:*)",
+      "Bash(rm:*)",
+      "Bash(npx expo prebuild:*)"
     ],
     "deny": [],
     "ask": []
