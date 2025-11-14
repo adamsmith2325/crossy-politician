@@ -1,6 +1,6 @@
 // src/game/VoxelScene.tsx
 import React, { useEffect, useRef } from 'react';
-import { PanResponder, View, Text, StyleSheet } from 'react-native';
+import { PanResponder, View, Text, StyleSheet, Alert } from 'react-native';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
@@ -80,10 +80,13 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
   // Initialize sounds and reset game state on mount
   useEffect(() => {
+    console.log('VoxelScene: Component mounted');
     initSounds();
+    console.log('VoxelScene: Sounds initialized');
 
     // Cleanup on unmount
     return () => {
+      console.log('VoxelScene: Component unmounting');
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
       }
@@ -508,94 +511,114 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   };
 
   const onContextCreate = async (gl: any) => {
-    glRef.current = gl;
+    try {
+      console.log('VoxelScene: onContextCreate called');
+      glRef.current = gl;
 
-    // Get environment and lighting configuration
-    const env = environmentRef.current;
-    const lighting = getLightingConfig(env);
-    console.log('Environment:', getEnvironmentDescription(env));
+      // Get environment and lighting configuration
+      const env = environmentRef.current;
+      const lighting = getLightingConfig(env);
+      console.log('Environment:', getEnvironmentDescription(env));
 
-    const renderer = new Renderer({ gl });
-    renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
-    renderer.setClearColor(lighting.skyColor, 1);
-    // Disable shadows for better performance
-    renderer.shadowMap.enabled = false;
-    rendererRef.current = renderer;
+      console.log('VoxelScene: Creating renderer');
+      const renderer = new Renderer({ gl });
+      renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
+      renderer.setClearColor(lighting.skyColor, 1);
+      // Disable shadows for better performance
+      renderer.shadowMap.enabled = false;
+      rendererRef.current = renderer;
+      console.log('VoxelScene: Renderer created successfully');
 
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(lighting.fogColor, lighting.fogDensity);
-    sceneRef.current = scene;
+      console.log('VoxelScene: Creating scene');
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(lighting.fogColor, lighting.fogDensity);
+      sceneRef.current = scene;
+      console.log('VoxelScene: Scene created');
 
-    const camera = new THREE.PerspectiveCamera(
-      60,
-      gl.drawingBufferWidth / gl.drawingBufferHeight,
-      0.1,
-      1000
-    );
-    // Adjusted camera position to prevent seeing through buildings
-    camera.position.set(3, 5, 6);
-    camera.lookAt(0, 0, -2);
-    cameraRef.current = camera;
+      console.log('VoxelScene: Creating camera');
+      const camera = new THREE.PerspectiveCamera(
+        60,
+        gl.drawingBufferWidth / gl.drawingBufferHeight,
+        0.1,
+        1000
+      );
+      // Adjusted camera position to prevent seeing through buildings
+      camera.position.set(3, 5, 6);
+      camera.lookAt(0, 0, -2);
+      cameraRef.current = camera;
+      console.log('VoxelScene: Camera created');
 
-    // Dynamic lighting based on environment
-    const hemisphereLight = new THREE.HemisphereLight(
-      lighting.skyColor,
-      lighting.groundColor,
-      lighting.hemisphereIntensity
-    );
-    scene.add(hemisphereLight);
+      // Dynamic lighting based on environment
+      console.log('VoxelScene: Creating lights');
+      const hemisphereLight = new THREE.HemisphereLight(
+        lighting.skyColor,
+        lighting.groundColor,
+        lighting.hemisphereIntensity
+      );
+      scene.add(hemisphereLight);
 
-    const directionalLight = new THREE.DirectionalLight(
-      lighting.directionalColor,
-      lighting.directionalIntensity
-    );
-    directionalLight.position.set(5, 10, 5);
-    // Shadows disabled for performance
-    directionalLight.castShadow = false;
-    scene.add(directionalLight);
+      const directionalLight = new THREE.DirectionalLight(
+        lighting.directionalColor,
+        lighting.directionalIntensity
+      );
+      directionalLight.position.set(5, 10, 5);
+      // Shadows disabled for performance
+      directionalLight.castShadow = false;
+      scene.add(directionalLight);
 
-    const ambientLight = new THREE.AmbientLight(
-      lighting.ambientColor,
-      lighting.ambientIntensity
-    );
-    scene.add(ambientLight);
+      const ambientLight = new THREE.AmbientLight(
+        lighting.ambientColor,
+        lighting.ambientIntensity
+      );
+      scene.add(ambientLight);
+      console.log('VoxelScene: Lights created');
 
-    // Generate initial lanes
-    generateLanesAhead(scene, 0);
+      // Generate initial lanes
+      console.log('VoxelScene: Generating lanes');
+      generateLanesAhead(scene, 0);
+      console.log('VoxelScene: Lanes generated');
 
-    // Generate initial buildings
-    furthestBuildingZRef.current = 5;
-    generateBuildingsAhead(scene, 0);
+      // Generate initial buildings
+      console.log('VoxelScene: Generating buildings');
+      furthestBuildingZRef.current = 5;
+      generateBuildingsAhead(scene, 0);
+      console.log('VoxelScene: Buildings generated');
 
-    // Player using the detailed model
-    const player = buildPlayer();
-    const startX = playerColRef.current - COLS / 2;
-    const startZ = -playerRowRef.current;
-    player.position.set(startX, 0.5, startZ);
-    targetPosRef.current = { x: startX, z: startZ };
-    scene.add(player);
-    playerRef.current = player;
+      // Player using the detailed model
+      console.log('VoxelScene: Creating player');
+      const player = buildPlayer();
+      const startX = playerColRef.current - COLS / 2;
+      const startZ = -playerRowRef.current;
+      player.position.set(startX, 0.5, startZ);
+      targetPosRef.current = { x: startX, z: startZ };
+      scene.add(player);
+      playerRef.current = player;
+      console.log('VoxelScene: Player created');
 
-    // Add weather particles
-    const weatherParticles = createWeatherParticles(
-      scene,
-      env.weather,
-      new THREE.Vector3(startX, 0, startZ)
-    );
-    weatherParticlesRef.current = weatherParticles;
+      // Add weather particles
+      console.log('VoxelScene: Creating weather particles');
+      const weatherParticles = createWeatherParticles(
+        scene,
+        env.weather,
+        new THREE.Vector3(startX, 0, startZ)
+      );
+      weatherParticlesRef.current = weatherParticles;
+      console.log('VoxelScene: Weather particles created');
 
-    let lastTime = Date.now();
+      let lastTime = Date.now();
 
-    const animate = () => {
-      if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) {
-        return;
-      }
+      const animate = () => {
+        try {
+          if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) {
+            console.warn('VoxelScene: Missing refs in animate loop');
+            return;
+          }
 
-      animationFrameRef.current = requestAnimationFrame(animate);
+          animationFrameRef.current = requestAnimationFrame(animate);
 
-      const currentTime = Date.now();
-      const delta = Math.min((currentTime - lastTime) / 1000, 0.1); // Cap delta to prevent huge jumps
-      lastTime = currentTime;
+          const currentTime = Date.now();
+          const delta = Math.min((currentTime - lastTime) / 1000, 0.1); // Cap delta to prevent huge jumps
+          lastTime = currentTime;
 
       // Smooth player movement with Crossy Road style jump
       if (isMovingRef.current) {
@@ -844,11 +867,23 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         }
       }
 
-      rendererRef.current.render(sceneRef.current, cameraRef.current);
-      gl.endFrameEXP();
-    };
+          rendererRef.current.render(sceneRef.current, cameraRef.current);
+          gl.endFrameEXP();
+        } catch (animateError) {
+          console.error('VoxelScene: Error in animate loop:', animateError);
+          // Continue animation loop despite errors
+        }
+      };
 
-    animate();
+      console.log('VoxelScene: Starting animation loop');
+      animate();
+      console.log('VoxelScene: Initialization complete');
+    } catch (error) {
+      console.error('VoxelScene: Error in onContextCreate:', error);
+      console.error('VoxelScene: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      // Display error to user
+      Alert.alert('Game Error', 'Failed to initialize game: ' + (error instanceof Error ? error.message : String(error)));
+    }
   };
 
   return (

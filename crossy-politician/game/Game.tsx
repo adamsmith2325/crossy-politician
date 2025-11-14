@@ -17,9 +17,13 @@ export default function Game() {
   const [savedScore, setSavedScore] = useState(false);
   const [viewingLeaderboard, setViewingLeaderboard] = useState(false);
 
+  const [gameKey, setGameKey] = useState(0);
+
   const startGame = () => {
+    console.log('Game: Starting new game');
     setScore(0);
     setSavedScore(false);
+    setGameKey(prev => prev + 1); // Force remount of VoxelScene
     setGameState('playing');
   };
 
@@ -54,9 +58,10 @@ export default function Game() {
   };
 
   if (gameState === 'playing') {
+    console.log('Game: Rendering playing state with key:', gameKey);
     return (
       <View style={{ flex: 1, backgroundColor: '#0b1220' }}>
-        <VoxelScene score={score} setScore={setScore} onGameOver={handleGameOver} />
+        <VoxelScene key={gameKey} score={score} setScore={setScore} onGameOver={handleGameOver} />
         <View style={styles.scoreOverlay}>
           <Text style={styles.scoreText}>Score: {score}</Text>
         </View>
