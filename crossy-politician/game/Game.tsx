@@ -3,9 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import VoxelScene from './VoxelScene';
 import Leaderboard from '../components/Leaderboard';
+import AchievementsModal from '../components/AchievementsModal';
 import { saveScore } from '../lib/leaderboard';
 import BannerAd from '../ads/BannerAd';
 import { interstitialAdManager } from '../ads/InterstitialAdManager';
+import { useAchievements } from './achievementsManager';
 
 type GameState = 'menu' | 'playing' | 'gameOver';
 
@@ -16,8 +18,19 @@ export default function Game() {
   const [username, setUsername] = useState('');
   const [savedScore, setSavedScore] = useState(false);
   const [viewingLeaderboard, setViewingLeaderboard] = useState(false);
+  const [viewingAchievements, setViewingAchievements] = useState(false);
+  const [survivalTime, setSurvivalTime] = useState(0);
+  const [bestTime, setBestTime] = useState(0);
 
   const [gameKey, setGameKey] = useState(0);
+
+  // Achievements system
+  const {
+    achievements,
+    unlockedThisSession,
+    checkAchievements,
+    resetSessionAchievements,
+  } = useAchievements();
 
   const startGame = () => {
     console.log('Game: Starting new game');
@@ -27,9 +40,26 @@ export default function Game() {
     setGameState('playing');
   };
 
-  const handleGameOver = (finalScore: number) => {
+  const handleGameOver = (finalScore: number, time: number, gameStats?: {
+    dodges: number;
+    jumps: number;
+    busesDodged: number;
+    policeDodged: number;
+    closeCall: boolean;
+  }) => {
     setGameState('gameOver');
     setBest(Math.max(best, finalScore));
+    setSurvivalTime(time);
+    setBestTime(Math.max(bestTime, time));
+
+    // Check achievements
+    if (gameStats) {
+      checkAchievements({
+        score: finalScore,
+        survivalTime: time,
+        ...gameStats,
+      });
+    }
 
     // Show interstitial ad every 5 games
     interstitialAdManager.onGameEnd();
@@ -53,8 +83,10 @@ export default function Game() {
   const handleBackToMenu = () => {
     setGameState('menu');
     setViewingLeaderboard(false);
+    setViewingAchievements(false);
     setSavedScore(false);
     setUsername('');
+    resetSessionAchievements();
   };
 
   if (gameState === 'playing') {
@@ -94,8 +126,17 @@ export default function Game() {
         <View style={styles.menu}>
           <Text style={styles.title}>Game Over!</Text>
           <Text style={styles.finalScore}>Score: {score}</Text>
+          <Text style={styles.survivalTime}>
+            You survived {survivalTime.toFixed(1)} seconds
+          </Text>
+          <Text style={styles.bestTimeText}>
+            Best: {bestTime.toFixed(1)} seconds
+          </Text>
           {score > best && score > 0 && (
-            <Text style={styles.newBest}>New Personal Best!</Text>
+            <Text style={styles.newBest}>New Personal Best Score!</Text>
+          )}
+          {survivalTime > bestTime - 0.1 && survivalTime > 0 && (
+            <Text style={styles.newBest}>New Best Time!</Text>
           )}
 
           {!savedScore ? (
@@ -124,9 +165,24 @@ export default function Game() {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity style={styles.secondaryButton} onPress={startGame}>
-            <Text style={styles.secondaryButtonText}>Play Again</Text>
-          </TouchableOpacity>
+          <View style={styles.buttonRow}>
+            <TouchableOpacity style={styles.button} onPress={startGame}>
+              <Text style={styles.buttonText}>Try Again?</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={styles.achievementsButton}
+              onPress={() => setViewingAchievements(true)}
+            >
+              <Text style={styles.buttonText}>
+                🏆 Achievements
+                {unlockedThisSession.length > 0 && ` (${unlockedThisSession.length} new!)`}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity style={styles.secondaryButton} onPress={handleBackToMenu}>
             <Text style={styles.secondaryButtonText}>Main Menu</Text>
           </TouchableOpacity>
@@ -147,6 +203,12 @@ export default function Game() {
         <TouchableOpacity style={styles.secondaryButton} onPress={() => setViewingLeaderboard(true)}>
           <Text style={styles.secondaryButtonText}>Leaderboard</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.achievementsButton}
+          onPress={() => setViewingAchievements(true)}
+        >
+          <Text style={styles.buttonText}>🏆 Achievements</Text>
+        </TouchableOpacity>
         {best > 0 && <Text style={styles.best}>Personal Best: {best}</Text>}
       </View>
 
@@ -160,6 +222,13 @@ export default function Game() {
           </View>
         </View>
       )}
+
+      <AchievementsModal
+        visible={viewingAchievements}
+        achievements={achievements}
+        unlockedThisSession={unlockedThisSession}
+        onClose={() => setViewingAchievements(false)}
+      />
     </View>
   );
 }
@@ -186,6 +255,18 @@ const styles = StyleSheet.create({
     fontSize: 48,
     fontWeight: 'bold',
     color: '#1e90ff',
+    marginBottom: 10,
+  },
+  survivalTime: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#9db4d1',
+    marginBottom: 5,
+  },
+  bestTimeText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#ffd966',
     marginBottom: 10,
   },
   newBest: {
@@ -291,5 +372,18 @@ const styles = StyleSheet.create({
   bottomButtonContainer: {
     padding: 20,
     backgroundColor: '#0b1220',
+  },
+  buttonRow: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  achievementsButton: {
+    backgroundColor: '#ffd966',
+    padding: 14,
+    paddingHorizontal: 40,
+    borderRadius: 8,
+    minWidth: 200,
+    alignItems: 'center',
   },
 });

@@ -7,6 +7,11 @@ import * as THREE from 'three';
 import { buildPlayer } from './components/VoxelPlayer';
 import { buildCar } from './components/VoxelCar';
 import { buildTruck } from './components/VoxelTruck';
+import { buildPoliceCar } from './components/VoxelPoliceCar';
+import { buildTaxi } from './components/VoxelTaxi';
+import { buildBus } from './components/VoxelBus';
+import { buildAmbulance } from './components/VoxelAmbulance';
+import { buildRandomObstacle } from './components/VoxelObstacles';
 import { COLS, MIN_CAR_GAP } from './constants';
 import type { Lane, LaneType } from './types';
 import { initSounds, play } from '../sound/soundManager';
@@ -28,6 +33,7 @@ interface CarObject {
   position: number;
   speed: number;
   direction: number;
+  type?: 'car' | 'truck' | 'bus' | 'police' | 'taxi' | 'ambulance';
 }
 
 interface BuildingObject {
@@ -35,10 +41,22 @@ interface BuildingObject {
   zPosition: number;
 }
 
+interface ObstacleObject {
+  mesh: THREE.Group;
+  laneIdx: number;
+  col: number;
+}
+
 interface VoxelSceneProps {
   score: number;
   setScore: (setter: (prevScore: number) => number) => void;
-  onGameOver: (finalScore: number) => void;
+  onGameOver: (finalScore: number, survivalTime: number, gameStats?: {
+    dodges: number;
+    jumps: number;
+    busesDodged: number;
+    policeDodged: number;
+    closeCall: boolean;
+  }) => void;
 }
 
 export default function VoxelScene({ score, setScore, onGameOver }: VoxelSceneProps) {
@@ -51,6 +69,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   // Game state
   const lanesRef = useRef<Lane[]>([]);
   const carsRef = useRef<CarObject[]>([]);
+  const obstaclesRef = useRef<ObstacleObject[]>([]);
   const playerRowRef = useRef(0);
   const playerColRef = useRef(Math.floor(COLS / 2));
   const gameOverRef = useRef(false);
@@ -78,10 +97,24 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   const buildingColorsRef = useRef<BuildingColors>(getBuildingColors(environmentRef.current));
   const weatherParticlesRef = useRef<THREE.Points | null>(null);
 
+  // Time tracking
+  const gameStartTimeRef = useRef<number>(Date.now());
+  const survivalTimeRef = useRef<number>(0);
+
+  // Game statistics for achievements
+  const gameStatsRef = useRef({
+    dodges: 0,
+    jumps: 0,
+    busesDodged: 0,
+    policeDodged: 0,
+    closeCall: false,
+  });
+
   // Initialize sounds and reset game state on mount
   useEffect(() => {
     console.log('VoxelScene: Component mounted');
     initSounds();
+    gameStartTimeRef.current = Date.now();
     console.log('VoxelScene: Sounds initialized');
 
     // Cleanup on unmount
@@ -98,10 +131,20 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       playerColRef.current = Math.floor(COLS / 2);
       lanesRef.current = [];
       carsRef.current = [];
+      obstaclesRef.current = [];
       laneObjectsRef.current.clear();
       buildingsRef.current = [];
       furthestLaneRef.current = -1;
       furthestBuildingZRef.current = 0;
+      gameStartTimeRef.current = Date.now();
+      survivalTimeRef.current = 0;
+      gameStatsRef.current = {
+        dodges: 0,
+        jumps: 0,
+        busesDodged: 0,
+        policeDodged: 0,
+        closeCall: false,
+      };
     };
   }, []);
 
@@ -128,28 +171,39 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     })
   ).current;
 
-  const createLane = (idx: number): Lane => {
+  const createLane = (idx: number, currentScore: number): Lane => {
     // First lane is always safe
     if (idx === 0) {
       return { idx, type: 'grass', dir: 0, speed: 0, cars: [] };
     }
 
+    // Progressive difficulty scaling based on score
+    const difficultyMultiplier = Math.min(1 + (currentScore / 50), 2.5); // Max 2.5x difficulty at score 75+
+
     // City-themed: alternate between sidewalks and roads
-    const isRoad = Math.random() < 0.65;
+    // Increase road probability slightly as score increases (max 75% roads)
+    const roadProbability = Math.min(0.65 + (currentScore / 200), 0.75);
+    const isRoad = Math.random() < roadProbability;
     const type: LaneType = isRoad ? 'road' : 'grass';
     const dir = Math.random() < 0.5 ? 1 : -1;
-    const speed = isRoad ? 0.25 + Math.random() * 0.4 : 0;
+
+    // Progressive speed increase: base speed increases with score
+    const baseSpeed = 0.25 + Math.random() * 0.4;
+    const speed = isRoad ? baseSpeed * difficultyMultiplier : 0;
 
     // Generate cars for road lanes
     const cars: number[] = [];
     if (isRoad) {
-      const numCars = Math.floor(Math.random() * 2) + 1; // 1-2 cars per lane
+      // Increase number of cars based on score (1-3 cars)
+      const maxCars = Math.min(Math.floor(1 + currentScore / 30), 3);
+      const numCars = Math.floor(Math.random() * maxCars) + 1;
       const attempts = numCars * 3; // Try multiple times to place cars
 
       for (let i = 0; i < attempts && cars.length < numCars; i++) {
         const pos = Math.random() * COLS;
-        // Check minimum gap from other cars
-        const tooClose = cars.some(c => Math.abs(c - pos) < MIN_CAR_GAP);
+        // Check minimum gap from other cars (gap decreases slightly with difficulty)
+        const minGap = Math.max(MIN_CAR_GAP - (currentScore / 100), 1.5);
+        const tooClose = cars.some(c => Math.abs(c - pos) < minGap);
         if (!tooClose) {
           cars.push(pos);
         }
@@ -224,10 +278,36 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     // Add cars for road lanes
     if (lane.type === 'road' && lane.cars.length > 0) {
       lane.cars.forEach(carPos => {
-        const isLargeTruck = Math.random() < 0.2;
-        const carMesh = isLargeTruck
-          ? buildTruck()
-          : buildCar(Math.random() < 0.5 ? 'red' : 'yellow');
+        // Randomly select vehicle type with weighted probabilities
+        const rand = Math.random();
+        let carMesh: THREE.Group;
+        let vehicleType: 'car' | 'truck' | 'bus' | 'police' | 'taxi' | 'ambulance';
+
+        if (rand < 0.05) {
+          // 5% chance for bus (largest)
+          carMesh = buildBus();
+          vehicleType = 'bus';
+        } else if (rand < 0.15) {
+          // 10% chance for truck
+          carMesh = buildTruck();
+          vehicleType = 'truck';
+        } else if (rand < 0.25) {
+          // 10% chance for ambulance
+          carMesh = buildAmbulance();
+          vehicleType = 'ambulance';
+        } else if (rand < 0.35) {
+          // 10% chance for police car
+          carMesh = buildPoliceCar();
+          vehicleType = 'police';
+        } else if (rand < 0.55) {
+          // 20% chance for taxi
+          carMesh = buildTaxi();
+          vehicleType = 'taxi';
+        } else {
+          // 45% chance for regular cars
+          carMesh = buildCar(Math.random() < 0.5 ? 'red' : 'yellow');
+          vehicleType = 'car';
+        }
 
         const x = carPos - COLS / 2;
         const z = -lane.idx;
@@ -244,9 +324,39 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           laneIdx: lane.idx,
           position: carPos,
           speed: lane.speed,
-          direction: lane.dir
+          direction: lane.dir,
+          type: vehicleType,
         });
       });
+    }
+
+    // Add obstacles for grass lanes (not the first lane)
+    if (lane.type === 'grass' && lane.idx > 0) {
+      // 40% chance to have obstacles on a grass lane
+      if (Math.random() < 0.4) {
+        const numObstacles = Math.floor(Math.random() * 2) + 1; // 1-2 obstacles per lane
+
+        for (let i = 0; i < numObstacles; i++) {
+          const col = Math.floor(Math.random() * COLS);
+
+          // Don't place obstacle in center column if it's a low-index lane
+          if (lane.idx < 5 && col === Math.floor(COLS / 2)) {
+            continue;
+          }
+
+          const obstacleMesh = buildRandomObstacle();
+          const x = col - COLS / 2;
+          const z = -lane.idx;
+          obstacleMesh.position.set(x, 0, z);
+
+          scene.add(obstacleMesh);
+          obstaclesRef.current.push({
+            mesh: obstacleMesh,
+            laneIdx: lane.idx,
+            col: col
+          });
+        }
+      }
     }
   };
 
@@ -260,9 +370,10 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     [-1, 1].forEach((side) => {
       const group = new THREE.Group();
 
-      const height = 5 + Math.random() * 12;
-      const width = 2.5 + Math.random() * 2;
-      const depth = 2 + Math.random() * 2;
+      // More varied building dimensions
+      const height = 6 + Math.random() * 15; // Taller buildings (6-21)
+      const width = 2 + Math.random() * 2.5; // 2-4.5 wide
+      const depth = 2 + Math.random() * 3; // 2-5 deep
 
       // Choose random color from palette
       const primaryColor = colors.primary[Math.floor(Math.random() * colors.primary.length)];
@@ -283,30 +394,81 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       group.add(mainBuilding);
 
       // Add architectural features randomly
-      const buildingStyle = Math.floor(Math.random() * 3);
+      const buildingStyle = Math.floor(Math.random() * 5); // More style variety
 
-      // Top accent/crown
-      if (buildingStyle === 0 || buildingStyle === 1) {
-        const crownHeight = height * 0.15;
+      // Top accent/crown (modern style)
+      if (buildingStyle === 0) {
+        const crownHeight = height * 0.12;
         const crown = new THREE.Mesh(
-          new THREE.BoxGeometry(width + 0.2, crownHeight, depth + 0.2),
-          new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.6 })
+          new THREE.BoxGeometry(width + 0.3, crownHeight, depth + 0.3),
+          new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.5, metalness: 0.2 })
         );
         crown.position.y = height + crownHeight / 2 - 0.1;
         group.add(crown);
-        buildingsRef.current.push({ mesh: crown, zPosition });
       }
 
-      // Add stepped/terraced design
-      if (buildingStyle === 2 && height > 8) {
-        const stepHeight = height * 0.3;
+      // Stepped/terraced design (classic)
+      else if (buildingStyle === 1 && height > 10) {
+        const stepHeight = height * 0.25;
         const step = new THREE.Mesh(
-          new THREE.BoxGeometry(width * 0.7, stepHeight, depth * 0.7),
+          new THREE.BoxGeometry(width * 0.75, stepHeight, depth * 0.75),
           new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.7 })
         );
         step.position.y = height + stepHeight / 2;
         group.add(step);
-        buildingsRef.current.push({ mesh: step, zPosition });
+
+        // Add another smaller step
+        const step2 = new THREE.Mesh(
+          new THREE.BoxGeometry(width * 0.5, stepHeight * 0.5, depth * 0.5),
+          new THREE.MeshStandardMaterial({ color: primaryColor, roughness: 0.7 })
+        );
+        step2.position.y = height + stepHeight + stepHeight * 0.25;
+        group.add(step2);
+      }
+
+      // Glass tower style (modern)
+      else if (buildingStyle === 2) {
+        const glassSection = new THREE.Mesh(
+          new THREE.BoxGeometry(width * 0.95, height * 0.3, depth * 0.95),
+          new THREE.MeshStandardMaterial({
+            color: 0x88ccff,
+            roughness: 0.1,
+            metalness: 0.8,
+            transparent: true,
+            opacity: 0.6
+          })
+        );
+        glassSection.position.y = height - (height * 0.15);
+        group.add(glassSection);
+      }
+
+      // Antenna/spire (tall buildings)
+      else if (buildingStyle === 3 && height > 12) {
+        const spire = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.08, 0.15, height * 0.25, 6),
+          new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8 })
+        );
+        spire.position.y = height + (height * 0.125);
+        group.add(spire);
+      }
+
+      // Art deco style
+      else if (buildingStyle === 4 && height > 8) {
+        const levels = 3;
+        for (let i = 0; i < levels; i++) {
+          const levelHeight = height * 0.15;
+          const levelWidth = width * (0.9 - i * 0.15);
+          const levelDepth = depth * (0.9 - i * 0.15);
+          const level = new THREE.Mesh(
+            new THREE.BoxGeometry(levelWidth, levelHeight, levelDepth),
+            new THREE.MeshStandardMaterial({
+              color: i % 2 === 0 ? accentColor : primaryColor,
+              roughness: 0.6
+            })
+          );
+          level.position.y = height + (i * levelHeight) + levelHeight / 2;
+          group.add(level);
+        }
       }
 
       // Windows - optimized (fewer windows, only front face)
@@ -378,7 +540,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     // Generate lanes up to target
     while (furthestLaneRef.current < targetRow) {
       furthestLaneRef.current++;
-      const lane = createLane(furthestLaneRef.current);
+      const lane = createLane(furthestLaneRef.current, score);
       lanesRef.current.push(lane);
       addLaneToScene(lane, scene);
     }
@@ -422,6 +584,15 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       return true;
     });
 
+    // Cleanup old obstacles
+    obstaclesRef.current = obstaclesRef.current.filter(obstacle => {
+      if (obstacle.laneIdx < playerRow - cleanupDistanceLanes) {
+        scene.remove(obstacle.mesh);
+        return false;
+      }
+      return true;
+    });
+
     // Cleanup old buildings
     buildingsRef.current = buildingsRef.current.filter(building => {
       if (building.zPosition > playerZ + cleanupDistanceBuildings) {
@@ -439,6 +610,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     const playerZ = playerRef.current.position.z;
     const collisionRadius = 0.4;
 
+    // Check collision with cars
     for (const car of carsRef.current) {
       const carX = car.mesh.position.x;
       const carZ = car.mesh.position.z;
@@ -462,6 +634,30 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       }
     }
 
+    // Check collision with obstacles
+    for (const obstacle of obstaclesRef.current) {
+      const obstacleX = obstacle.mesh.position.x;
+      const obstacleZ = obstacle.mesh.position.z;
+
+      const distance = Math.sqrt(
+        Math.pow(playerX - obstacleX, 2) + Math.pow(playerZ - obstacleZ, 2)
+      );
+
+      if (distance < collisionRadius) {
+        // Calculate hit direction from obstacle
+        const dx = playerX - obstacleX;
+        const dz = playerZ - obstacleZ;
+        const magnitude = Math.sqrt(dx * dx + dz * dz);
+        if (magnitude > 0) {
+          hitDirectionRef.current = {
+            x: (dx / magnitude) * 1.5,
+            z: (dz / magnitude) * 0.5
+          };
+        }
+        return true;
+      }
+    }
+
     return false;
   };
 
@@ -475,20 +671,24 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       playerRowRef.current++;
       targetPosRef.current.z = -playerRowRef.current;
       setScore((s) => s + 1);
+      gameStatsRef.current.jumps++;
     } else if (dir === 'down') {
       if (playerRowRef.current > 0) {
         playerRowRef.current--;
         targetPosRef.current.z = -playerRowRef.current;
+        gameStatsRef.current.jumps++;
       }
     } else if (dir === 'left') {
       if (playerColRef.current > 0) {
         playerColRef.current--;
         targetPosRef.current.x = playerColRef.current - COLS / 2;
+        gameStatsRef.current.jumps++;
       }
     } else if (dir === 'right') {
       if (playerColRef.current < COLS - 1) {
         playerColRef.current++;
         targetPosRef.current.x = playerColRef.current - COLS / 2;
+        gameStatsRef.current.jumps++;
       }
     }
 
@@ -717,10 +917,44 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         );
       }
 
-      // Update cars
+      // Update cars and check for near misses
       carsRef.current.forEach(car => {
         car.position += car.direction * car.speed * delta * 3;
         car.mesh.position.x = car.position - COLS / 2;
+
+        // Check for close calls (near misses)
+        if (!gameOverRef.current && !isMovingRef.current) {
+          const playerX = playerRef.current.position.x;
+          const playerZ = playerRef.current.position.z;
+          const carX = car.mesh.position.x;
+          const carZ = car.mesh.position.z;
+
+          const distance = Math.sqrt(
+            Math.pow(playerX - carX, 2) + Math.pow(playerZ - carZ, 2)
+          );
+
+          // Close call: distance less than 0.7 but greater than collision radius (0.4)
+          if (distance < 0.7 && distance > 0.4) {
+            gameStatsRef.current.closeCall = true;
+          }
+
+          // Track dodges (vehicle passed by the player)
+          const prevPosition = car.position - car.direction * car.speed * delta * 3;
+          const playerCol = playerColRef.current;
+          const playerXGrid = playerCol - COLS / 2;
+
+          // Check if vehicle just passed the player's position
+          if (car.laneIdx === playerRowRef.current) {
+            if (
+              (car.direction > 0 && prevPosition < playerXGrid && car.position >= playerXGrid) ||
+              (car.direction < 0 && prevPosition > playerXGrid && car.position <= playerXGrid)
+            ) {
+              gameStatsRef.current.dodges++;
+              if (car.type === 'bus') gameStatsRef.current.busesDodged++;
+              if (car.type === 'police') gameStatsRef.current.policeDodged++;
+            }
+          }
+        }
 
         // Wrap around
         if (car.position > COLS + 2) {
@@ -862,7 +1096,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           // Animation complete
           if (!gameOverRef.current) {
             gameOverRef.current = true;
-            onGameOver(score);
+            survivalTimeRef.current = (Date.now() - gameStartTimeRef.current) / 1000;
+            onGameOver(score, survivalTimeRef.current, gameStatsRef.current);
           }
         }
       }
