@@ -245,6 +245,117 @@ export function buildBench(): THREE.Group {
 }
 
 /**
+ * Build a bus stop obstacle
+ */
+export function buildBusStop(): THREE.Group {
+  const g = new THREE.Group();
+
+  // Pole
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04, 0.04, 1.2, 8),
+    new THREE.MeshStandardMaterial({ color: 0x444444 })
+  );
+  pole.position.y = 0.6;
+  g.add(pole);
+
+  // Sign
+  const sign = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.3, 0.05),
+    new THREE.MeshStandardMaterial({ color: 0x3a7bc8 })
+  );
+  sign.position.y = 1.0;
+  g.add(sign);
+
+  // Bench shelter roof (optional)
+  if (Math.random() < 0.5) {
+    const roof = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 0.05, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.4 })
+    );
+    roof.position.y = 1.3;
+    g.add(roof);
+  }
+
+  return g;
+}
+
+/**
+ * Build a tree obstacle
+ */
+export function buildTree(): THREE.Group {
+  const g = new THREE.Group();
+
+  // Trunk
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.1, 0.5, 6),
+    new THREE.MeshStandardMaterial({ color: 0x5d4037 })
+  );
+  trunk.position.y = 0.25;
+  g.add(trunk);
+
+  // Foliage (3 spherical sections)
+  const foliageColors = [0x2e7d32, 0x388e3c, 0x43a047];
+  const foliageColor = foliageColors[Math.floor(Math.random() * foliageColors.length)];
+
+  const foliage1 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, 0.35, 0.35),
+    new THREE.MeshStandardMaterial({ color: foliageColor })
+  );
+  foliage1.position.y = 0.55;
+  g.add(foliage1);
+
+  const foliage2 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.3, 0.3),
+    new THREE.MeshStandardMaterial({ color: foliageColor })
+  );
+  foliage2.position.y = 0.75;
+  g.add(foliage2);
+
+  const foliage3 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 0.2, 0.2),
+    new THREE.MeshStandardMaterial({ color: foliageColor })
+  );
+  foliage3.position.y = 0.9;
+  g.add(foliage3);
+
+  return g;
+}
+
+/**
+ * Build a newspaper stand obstacle
+ */
+export function buildNewspaperStand(): THREE.Group {
+  const g = new THREE.Group();
+
+  // Base
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.6, 0.3),
+    new THREE.MeshStandardMaterial({ color: 0x1565c0 })
+  );
+  base.position.y = 0.3;
+  base.castShadow = true;
+  g.add(base);
+
+  // Top sign
+  const sign = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, 0.15, 0.05),
+    new THREE.MeshStandardMaterial({ color: 0xffd600 })
+  );
+  sign.position.y = 0.7;
+  g.add(sign);
+
+  // Display window
+  const window1 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.3, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0xeeeeee, transparent: true, opacity: 0.8 })
+  );
+  window1.position.set(0, 0.35, 0.16);
+  g.add(window1);
+
+  return g;
+}
+
+/**
  * Randomly select and build an obstacle
  */
 export function buildRandomObstacle(): THREE.Group {
@@ -255,6 +366,9 @@ export function buildRandomObstacle(): THREE.Group {
     buildTrashCan,
     buildStreetLamp,
     buildBench,
+    buildBusStop,
+    buildTree,
+    buildNewspaperStand,
   ];
 
   const randomIndex = Math.floor(Math.random() * obstacles.length);
