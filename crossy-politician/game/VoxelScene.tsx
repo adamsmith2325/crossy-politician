@@ -177,8 +177,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       return { idx, type: 'grass', dir: 0, speed: 0, cars: [] };
     }
 
-    // Progressive difficulty scaling based on score
-    const difficultyMultiplier = Math.min(1 + (currentScore / 50), 2.5); // Max 2.5x difficulty at score 75+
+    // Progressive difficulty scaling based on score (increased for more challenge)
+    const difficultyMultiplier = Math.min(1 + (currentScore / 40), 3.5); // Max 3.5x difficulty at score 100+ (faster ramp-up)
 
     // City-themed: alternate between sidewalks and roads
     // Increase road probability slightly as score increases (max 75% roads)
@@ -187,22 +187,22 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     const type: LaneType = isRoad ? 'road' : 'grass';
     const dir = Math.random() < 0.5 ? 1 : -1;
 
-    // Progressive speed increase: base speed increases with score
-    const baseSpeed = 0.25 + Math.random() * 0.4;
+    // Progressive speed increase: base speed increases with score (increased base speed for difficulty)
+    const baseSpeed = 0.4 + Math.random() * 0.5; // Increased from 0.25-0.65 to 0.4-0.9
     const speed = isRoad ? baseSpeed * difficultyMultiplier : 0;
 
     // Generate cars for road lanes
     const cars: number[] = [];
     if (isRoad) {
-      // Increase number of cars based on score (1-3 cars)
-      const maxCars = Math.min(Math.floor(1 + currentScore / 30), 3);
+      // Increase number of cars based on score (1-4 cars for more difficulty)
+      const maxCars = Math.min(Math.floor(1 + currentScore / 25), 4); // Increased from 3 to 4, faster ramp-up
       const numCars = Math.floor(Math.random() * maxCars) + 1;
       const attempts = numCars * 3; // Try multiple times to place cars
 
       for (let i = 0; i < attempts && cars.length < numCars; i++) {
         const pos = Math.random() * COLS;
-        // Check minimum gap from other cars (gap decreases slightly with difficulty)
-        const minGap = Math.max(MIN_CAR_GAP - (currentScore / 100), 1.5);
+        // Check minimum gap from other cars (gap decreases more aggressively with difficulty)
+        const minGap = Math.max(MIN_CAR_GAP - (currentScore / 80), 1.3); // Reduced min gap from 1.5 to 1.3
         const tooClose = cars.some(c => Math.abs(c - pos) < minGap);
         if (!tooClose) {
           cars.push(pos);
