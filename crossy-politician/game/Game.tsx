@@ -7,7 +7,7 @@ import AchievementsModal from '../components/AchievementsModal';
 import { saveScore } from '../lib/leaderboard';
 import BannerAd from '../ads/BannerAd';
 import { interstitialAdManager } from '../ads/InterstitialAdManager';
-import { useAchievements } from './achievementsManager';
+import { useAchievementsWithPersistence } from './achievementsManagerWithPersistence';
 
 type GameState = 'menu' | 'playing' | 'gameOver';
 
@@ -24,13 +24,23 @@ export default function Game() {
 
   const [gameKey, setGameKey] = useState(0);
 
-  // Achievements system
+  // Achievements system with Supabase persistence
   const {
     achievements,
     unlockedThisSession,
     checkAchievements,
     resetSessionAchievements,
-  } = useAchievements();
+    username: savedUsername,
+    saveUsername,
+    isLoading: achievementsLoading,
+  } = useAchievementsWithPersistence();
+
+  // Initialize username from saved value
+  React.useEffect(() => {
+    if (savedUsername && !username) {
+      setUsername(savedUsername);
+    }
+  }, [savedUsername]);
 
   const startGame = () => {
     console.log('Game: Starting new game');
@@ -70,6 +80,9 @@ export default function Game() {
       alert('Please enter a username');
       return;
     }
+
+    // Save username for future use and initialize profile
+    await saveUsername(username.trim());
 
     const success = await saveScore(username.trim(), score);
     if (success) {
@@ -118,32 +131,74 @@ export default function Game() {
       );
     }
 
+    const isNewBestScore = score > best && score > 0;
+    const isNewBestTime = survivalTime > bestTime - 0.1 && survivalTime > 0;
+
     return (
       <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: '#0b1220' }}
+        style={styles.gameOverContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.menu}>
-          <Text style={styles.title}>Game Over!</Text>
-          <Text style={styles.finalScore}>Score: {score}</Text>
-          <Text style={styles.survivalTime}>
-            You survived {survivalTime.toFixed(1)} seconds
-          </Text>
-          <Text style={styles.bestTimeText}>
-            Best: {bestTime.toFixed(1)} seconds
-          </Text>
-          {score > best && score > 0 && (
-            <Text style={styles.newBest}>New Personal Best Score!</Text>
-          )}
-          {survivalTime > bestTime - 0.1 && survivalTime > 0 && (
-            <Text style={styles.newBest}>New Best Time!</Text>
+        <View style={styles.gameOverContent}>
+          {/* Header */}
+          <View style={styles.gameOverHeader}>
+            <Text style={styles.gameOverTitle}>Game Over</Text>
+            {(isNewBestScore || isNewBestTime) && (
+              <View style={styles.newRecordBanner}>
+                <Text style={styles.newRecordText}>✨ NEW RECORD! ✨</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Score Card */}
+          <View style={styles.scoreCard}>
+            <View style={styles.scoreRow}>
+              <View style={styles.scoreStat}>
+                <Text style={styles.scoreLabel}>Final Score</Text>
+                <Text style={styles.scoreValue}>{score}</Text>
+                {isNewBestScore && <Text style={styles.bestBadge}>BEST!</Text>}
+              </View>
+              <View style={styles.scoreDivider} />
+              <View style={styles.scoreStat}>
+                <Text style={styles.scoreLabel}>Survival Time</Text>
+                <Text style={styles.scoreValue}>{survivalTime.toFixed(1)}s</Text>
+                {isNewBestTime && <Text style={styles.bestBadge}>BEST!</Text>}
+              </View>
+            </View>
+
+            <View style={styles.personalBestRow}>
+              <View style={styles.personalBestItem}>
+                <Text style={styles.personalBestLabel}>Best Score</Text>
+                <Text style={styles.personalBestValue}>{Math.max(best, score)}</Text>
+              </View>
+              <View style={styles.personalBestItem}>
+                <Text style={styles.personalBestLabel}>Best Time</Text>
+                <Text style={styles.personalBestValue}>{Math.max(bestTime, survivalTime).toFixed(1)}s</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* New Achievements Banner */}
+          {unlockedThisSession.length > 0 && (
+            <View style={styles.achievementsBanner}>
+              <Text style={styles.achievementsBannerIcon}>🏆</Text>
+              <View style={styles.achievementsBannerText}>
+                <Text style={styles.achievementsBannerTitle}>
+                  {unlockedThisSession.length} New Achievement{unlockedThisSession.length > 1 ? 's' : ''}!
+                </Text>
+                <Text style={styles.achievementsBannerSubtitle}>
+                  {unlockedThisSession.map(a => a.title).join(', ')}
+                </Text>
+              </View>
+            </View>
           )}
 
-          {!savedScore ? (
-            <>
-              <Text style={styles.subtitle}>Save your score</Text>
+          {/* Username Input Section */}
+          {!savedScore && (
+            <View style={styles.leaderboardSection}>
+              <Text style={styles.leaderboardPrompt}>Save to Leaderboard</Text>
               <TextInput
-                style={styles.input}
+                style={styles.usernameInput}
                 placeholder="Enter your name"
                 placeholderTextColor="#6b7888"
                 value={username}
@@ -152,40 +207,47 @@ export default function Game() {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              <TouchableOpacity style={styles.button} onPress={handleSaveScore}>
-                <Text style={styles.buttonText}>Save & View Leaderboard</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => setViewingLeaderboard(true)}>
-                <Text style={styles.secondaryButtonText}>View Leaderboard</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <TouchableOpacity style={styles.button} onPress={() => setViewingLeaderboard(true)}>
-              <Text style={styles.buttonText}>View Leaderboard</Text>
-            </TouchableOpacity>
+            </View>
           )}
 
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.button} onPress={startGame}>
-              <Text style={styles.buttonText}>Try Again?</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Action Buttons */}
+          <View style={styles.actionsContainer}>
+            {!savedScore ? (
+              <>
+                <TouchableOpacity
+                  style={[styles.primaryButton, !username.trim() && styles.buttonDisabled]}
+                  onPress={handleSaveScore}
+                  disabled={!username.trim()}
+                >
+                  <Text style={styles.primaryButtonText}>💾 Save & View Leaderboard</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryButtonAlt} onPress={() => setViewingLeaderboard(true)}>
+                  <Text style={styles.secondaryButtonAltText}>View Leaderboard</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity style={styles.primaryButton} onPress={() => setViewingLeaderboard(true)}>
+                <Text style={styles.primaryButtonText}>View Leaderboard</Text>
+              </TouchableOpacity>
+            )}
 
-          <View style={styles.buttonRow}>
+            <TouchableOpacity style={styles.playAgainButton} onPress={startGame}>
+              <Text style={styles.playAgainButtonText}>🎮 Play Again</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
-              style={styles.achievementsButton}
+              style={styles.achievementsButtonAlt}
               onPress={() => setViewingAchievements(true)}
             >
-              <Text style={styles.buttonText}>
-                🏆 Achievements
-                {unlockedThisSession.length > 0 && ` (${unlockedThisSession.length} new!)`}
+              <Text style={styles.achievementsButtonAltText}>
+                View All Achievements
               </Text>
             </TouchableOpacity>
-          </View>
 
-          <TouchableOpacity style={styles.secondaryButton} onPress={handleBackToMenu}>
-            <Text style={styles.secondaryButtonText}>Main Menu</Text>
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.menuButton} onPress={handleBackToMenu}>
+              <Text style={styles.menuButtonText}>Main Menu</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </KeyboardAvoidingView>
     );
@@ -251,43 +313,222 @@ const styles = StyleSheet.create({
     color: '#9db4d1',
     marginBottom: 30
   },
-  finalScore: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#1e90ff',
-    marginBottom: 10,
-  },
-  survivalTime: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#9db4d1',
-    marginBottom: 5,
-  },
-  bestTimeText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#ffd966',
-    marginBottom: 10,
-  },
-  newBest: {
-    fontSize: 20,
-    color: '#ffd966',
-    fontWeight: 'bold',
-    marginBottom: 20,
-  },
-  input: {
-    backgroundColor: '#1a2330',
-    color: '#fff',
+  best: {
     fontSize: 18,
-    padding: 14,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    width: '100%',
-    maxWidth: 300,
+    color: '#ffd966',
+    fontWeight: 'bold',
+    marginTop: 20
+  },
+  // Game Over Screen Styles
+  gameOverContainer: {
+    flex: 1,
+    backgroundColor: '#0b1220',
+  },
+  gameOverContent: {
+    flex: 1,
+    padding: 20,
+    paddingTop: 40,
+  },
+  gameOverHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  gameOverTitle: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  newRecordBanner: {
+    backgroundColor: '#ffd966',
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  newRecordText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#0b1220',
+  },
+  scoreCard: {
+    backgroundColor: '#1a2330',
+    borderRadius: 16,
+    padding: 20,
     marginBottom: 20,
     borderWidth: 2,
     borderColor: '#2a3a50',
   },
+  scoreRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a3a50',
+  },
+  scoreStat: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  scoreLabel: {
+    fontSize: 14,
+    color: '#9db4d1',
+    fontWeight: '600',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  scoreValue: {
+    fontSize: 42,
+    fontWeight: 'bold',
+    color: '#1e90ff',
+  },
+  bestBadge: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#ffd966',
+    backgroundColor: 'rgba(255, 217, 102, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  scoreDivider: {
+    width: 1,
+    backgroundColor: '#2a3a50',
+    marginHorizontal: 16,
+  },
+  personalBestRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  personalBestItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  personalBestLabel: {
+    fontSize: 12,
+    color: '#6b7888',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  personalBestValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#ffd966',
+  },
+  achievementsBanner: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 217, 102, 0.15)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#ffd966',
+    alignItems: 'center',
+  },
+  achievementsBannerIcon: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  achievementsBannerText: {
+    flex: 1,
+  },
+  achievementsBannerTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#ffd966',
+    marginBottom: 4,
+  },
+  achievementsBannerSubtitle: {
+    fontSize: 13,
+    color: '#9db4d1',
+  },
+  leaderboardSection: {
+    marginBottom: 20,
+  },
+  leaderboardPrompt: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#9db4d1',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  usernameInput: {
+    backgroundColor: '#1a2330',
+    color: '#fff',
+    fontSize: 18,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#2a3a50',
+    textAlign: 'center',
+  },
+  actionsContainer: {
+    gap: 12,
+  },
+  primaryButton: {
+    backgroundColor: '#1e90ff',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  secondaryButtonAlt: {
+    backgroundColor: '#2a3a50',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  secondaryButtonAltText: {
+    color: '#9db4d1',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  playAgainButton: {
+    backgroundColor: '#10b981',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  playAgainButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  achievementsButtonAlt: {
+    backgroundColor: 'rgba(255, 217, 102, 0.2)',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#ffd966',
+  },
+  achievementsButtonAltText: {
+    color: '#ffd966',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  menuButton: {
+    backgroundColor: 'transparent',
+    padding: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  menuButtonText: {
+    color: '#6b7888',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  // Legacy Styles (for menu and other screens)
   button: {
     backgroundColor: '#1e90ff',
     padding: 14,
@@ -315,12 +556,6 @@ const styles = StyleSheet.create({
     color: '#9db4d1',
     fontSize: 16,
     fontWeight: '600',
-  },
-  best: {
-    fontSize: 18,
-    color: '#ffd966',
-    fontWeight: 'bold',
-    marginTop: 20
   },
   scoreOverlay: {
     position: 'absolute',
@@ -372,11 +607,6 @@ const styles = StyleSheet.create({
   bottomButtonContainer: {
     padding: 20,
     backgroundColor: '#0b1220',
-  },
-  buttonRow: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 12,
   },
   achievementsButton: {
     backgroundColor: '#ffd966',
