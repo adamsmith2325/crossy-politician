@@ -177,8 +177,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       return { idx, type: 'grass', dir: 0, speed: 0, cars: [] };
     }
 
-    // Progressive difficulty scaling based on score
-    const difficultyMultiplier = Math.min(1 + (currentScore / 50), 2.5); // Max 2.5x difficulty at score 75+
+    // Progressive difficulty scaling based on score (increased for more challenge)
+    const difficultyMultiplier = Math.min(1 + (currentScore / 40), 3.5); // Max 3.5x difficulty at score 100+ (faster ramp-up)
 
     // City-themed: alternate between sidewalks and roads
     // Increase road probability slightly as score increases (max 75% roads)
@@ -187,22 +187,22 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     const type: LaneType = isRoad ? 'road' : 'grass';
     const dir = Math.random() < 0.5 ? 1 : -1;
 
-    // Progressive speed increase: base speed increases with score
-    const baseSpeed = 0.25 + Math.random() * 0.4;
+    // Progressive speed increase: base speed increases with score (increased base speed for difficulty)
+    const baseSpeed = 0.4 + Math.random() * 0.5; // Increased from 0.25-0.65 to 0.4-0.9
     const speed = isRoad ? baseSpeed * difficultyMultiplier : 0;
 
     // Generate cars for road lanes
     const cars: number[] = [];
     if (isRoad) {
-      // Increase number of cars based on score (1-3 cars)
-      const maxCars = Math.min(Math.floor(1 + currentScore / 30), 3);
+      // Increase number of cars based on score (1-4 cars for more difficulty)
+      const maxCars = Math.min(Math.floor(1 + currentScore / 25), 4); // Increased from 3 to 4, faster ramp-up
       const numCars = Math.floor(Math.random() * maxCars) + 1;
       const attempts = numCars * 3; // Try multiple times to place cars
 
       for (let i = 0; i < attempts && cars.length < numCars; i++) {
         const pos = Math.random() * COLS;
-        // Check minimum gap from other cars (gap decreases slightly with difficulty)
-        const minGap = Math.max(MIN_CAR_GAP - (currentScore / 100), 1.5);
+        // Check minimum gap from other cars (gap decreases more aggressively with difficulty)
+        const minGap = Math.max(MIN_CAR_GAP - (currentScore / 80), 1.3); // Reduced min gap from 1.5 to 1.3
         const tooClose = cars.some(c => Math.abs(c - pos) < minGap);
         if (!tooClose) {
           cars.push(pos);
@@ -225,20 +225,55 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       base.receiveShadow = true;
       g.add(base);
 
-      // Add edge detail
+      // Add curbs on both edges (raised edge)
+      const curbHeight = 0.08;
+      const curbLeft = new THREE.Mesh(
+        new THREE.BoxGeometry(0.15, curbHeight, 1),
+        new THREE.MeshStandardMaterial({ color: 0x909599 })
+      );
+      curbLeft.position.set(-width / 2 + 0.075, curbHeight / 2, 0);
+      g.add(curbLeft);
+
+      const curbRight = new THREE.Mesh(
+        new THREE.BoxGeometry(0.15, curbHeight, 1),
+        new THREE.MeshStandardMaterial({ color: 0x909599 })
+      );
+      curbRight.position.set(width / 2 - 0.075, curbHeight / 2, 0);
+      g.add(curbRight);
+
+      // Sidewalk edge detail
       const edgeLeft = new THREE.Mesh(
         new THREE.BoxGeometry(0.1, 0.03, 1),
         new THREE.MeshStandardMaterial({ color: 0xa0a5ac })
       );
-      edgeLeft.position.set(-width / 2 + 0.05, 0.01, 0);
+      edgeLeft.position.set(-width / 2 + 0.2, 0.01, 0);
       g.add(edgeLeft);
 
       const edgeRight = new THREE.Mesh(
         new THREE.BoxGeometry(0.1, 0.03, 1),
         new THREE.MeshStandardMaterial({ color: 0xa0a5ac })
       );
-      edgeRight.position.set(width / 2 - 0.05, 0.01, 0);
+      edgeRight.position.set(width / 2 - 0.2, 0.01, 0);
       g.add(edgeRight);
+
+      // Occasionally add manhole cover
+      if (Math.random() < 0.15) {
+        const manhole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.25, 0.25, 0.02, 16),
+          new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.5, roughness: 0.7 })
+        );
+        manhole.rotation.x = Math.PI / 2;
+        manhole.position.set((Math.random() - 0.5) * width * 0.6, 0.011, 0);
+        g.add(manhole);
+
+        // Manhole detail lines
+        const line1 = new THREE.Mesh(
+          new THREE.BoxGeometry(0.3, 0.01, 0.02),
+          new THREE.MeshStandardMaterial({ color: 0x555555 })
+        );
+        line1.position.set(manhole.position.x, 0.012, 0);
+        g.add(line1);
+      }
 
     } else {
       // Road - dark asphalt
@@ -258,6 +293,30 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         );
         dash.position.set(0, 0.011, -0.4 + i * 0.3);
         g.add(dash);
+      }
+
+      // Occasionally add crosswalk
+      if (Math.random() < 0.12) {
+        const crosswalkMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        for (let i = 0; i < 5; i++) {
+          const stripe = new THREE.Mesh(
+            new THREE.BoxGeometry(width * 0.7, 0.01, 0.15),
+            crosswalkMat
+          );
+          stripe.position.set(0, 0.011, -0.4 + i * 0.2);
+          g.add(stripe);
+        }
+      }
+
+      // Occasionally add manhole cover on road
+      if (Math.random() < 0.08) {
+        const manhole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.25, 0.25, 0.02, 16),
+          new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.5, roughness: 0.7 })
+        );
+        manhole.rotation.x = Math.PI / 2;
+        manhole.position.set((Math.random() - 0.5) * width * 0.4, 0.011, 0);
+        g.add(manhole);
       }
     }
 
@@ -330,11 +389,11 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       });
     }
 
-    // Add obstacles for grass lanes (not the first lane)
+    // Add obstacles and parked cars for grass lanes (not the first lane)
     if (lane.type === 'grass' && lane.idx > 0) {
-      // 40% chance to have obstacles on a grass lane
-      if (Math.random() < 0.4) {
-        const numObstacles = Math.floor(Math.random() * 2) + 1; // 1-2 obstacles per lane
+      // 70% chance to have obstacles on a grass lane (increased from 40%)
+      if (Math.random() < 0.7) {
+        const numObstacles = Math.floor(Math.random() * 4) + 2; // 2-5 obstacles per lane (increased from 1-2)
 
         for (let i = 0; i < numObstacles; i++) {
           const col = Math.floor(Math.random() * COLS);
@@ -357,179 +416,391 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           });
         }
       }
+
+      // Add parked cars along the edges of sidewalks (35% chance)
+      if (Math.random() < 0.35) {
+        const numParkedCars = Math.floor(Math.random() * 2) + 1; // 1-2 parked cars
+
+        for (let i = 0; i < numParkedCars; i++) {
+          // Randomly select vehicle type (prefer regular cars for parked cars)
+          const rand = Math.random();
+          let carMesh: THREE.Group;
+
+          if (rand < 0.7) {
+            // 70% chance for regular cars
+            carMesh = buildCar(Math.random() < 0.5 ? 'red' : 'yellow');
+          } else if (rand < 0.85) {
+            // 15% chance for taxi
+            carMesh = buildTaxi();
+          } else {
+            // 15% chance for police car
+            carMesh = buildPoliceCar();
+          }
+
+          // Park on left or right edge
+          const parkOnLeft = Math.random() < 0.5;
+          const x = parkOnLeft ? -COLS / 2 + 0.8 : COLS / 2 - 0.8;
+          const z = -lane.idx;
+          carMesh.position.set(x, 0.1, z);
+
+          // Rotate to face along the street
+          carMesh.rotation.y = parkOnLeft ? Math.PI / 2 : -Math.PI / 2;
+
+          scene.add(carMesh);
+          obstaclesRef.current.push({
+            mesh: carMesh,
+            laneIdx: lane.idx,
+            col: parkOnLeft ? 0 : COLS - 1
+          });
+        }
+      }
     }
   };
 
   const addBuilding = (scene: THREE.Scene, zPosition: number) => {
-    const buildingDistance = 8;
     const colors = buildingColorsRef.current;
     const season = environmentRef.current.season;
     const timeOfDay = environmentRef.current.timeOfDay;
+    const fogColor = getLightingConfig(environmentRef.current).fogColor;
 
-    // Create building for each side
-    [-1, 1].forEach((side) => {
-      const group = new THREE.Group();
+    // Create multiple layers of buildings for depth
+    // Layer 1 (Foreground): Close to street at x = ±5.5
+    // Layer 2 (Mid-ground): At x = ±9
+    // Layer 3 (Background): At x = ±13
+    // Layer 4 (Far background): At x = ±18
+    const buildingLayers = [
+      { distance: 5.5, heightRange: [8, 18], widthRange: [2, 4], depthRange: [2, 4], opacity: 1.0, colorShift: 0 },
+      { distance: 9, heightRange: [10, 22], widthRange: [2.5, 5], depthRange: [3, 6], opacity: 0.95, colorShift: 0.05 },
+      { distance: 13, heightRange: [12, 25], widthRange: [3, 6], depthRange: [3, 7], opacity: 0.85, colorShift: 0.12 },
+      { distance: 18, heightRange: [15, 30], widthRange: [4, 8], depthRange: [4, 8], opacity: 0.7, colorShift: 0.2 },
+    ];
 
-      // More varied building dimensions
-      const height = 6 + Math.random() * 15; // Taller buildings (6-21)
-      const width = 2 + Math.random() * 2.5; // 2-4.5 wide
-      const depth = 2 + Math.random() * 3; // 2-5 deep
+    // Create buildings for each layer
+    buildingLayers.forEach((layer) => {
+      [-1, 1].forEach((side) => {
+        const group = new THREE.Group();
 
-      // Choose random color from palette
-      const primaryColor = colors.primary[Math.floor(Math.random() * colors.primary.length)];
-      const accentColor = colors.accent[Math.floor(Math.random() * colors.accent.length)];
+        // Varied building dimensions based on layer
+        const height = layer.heightRange[0] + Math.random() * (layer.heightRange[1] - layer.heightRange[0]);
+        const width = layer.widthRange[0] + Math.random() * (layer.widthRange[1] - layer.widthRange[0]);
+        const depth = layer.depthRange[0] + Math.random() * (layer.depthRange[1] - layer.depthRange[0]);
 
-      // Main building body
-      const mainBuilding = new THREE.Mesh(
-        new THREE.BoxGeometry(width, height, depth),
-        new THREE.MeshStandardMaterial({
-          color: primaryColor,
-          roughness: 0.7,
-          metalness: 0.1
-        })
-      );
-      mainBuilding.position.y = height / 2;
-      mainBuilding.castShadow = true;
-      mainBuilding.receiveShadow = true;
-      group.add(mainBuilding);
+        // Choose random color from palette with atmospheric perspective
+        const primaryColor = colors.primary[Math.floor(Math.random() * colors.primary.length)];
+        const accentColor = colors.accent[Math.floor(Math.random() * colors.accent.length)];
 
-      // Add architectural features randomly
-      const buildingStyle = Math.floor(Math.random() * 5); // More style variety
+        // Apply atmospheric perspective (shift colors toward fog color for distant buildings)
+        const shiftedPrimaryColor = new THREE.Color(primaryColor).lerp(new THREE.Color(fogColor), layer.colorShift);
+        const shiftedAccentColor = new THREE.Color(accentColor).lerp(new THREE.Color(fogColor), layer.colorShift);
 
-      // Top accent/crown (modern style)
-      if (buildingStyle === 0) {
-        const crownHeight = height * 0.12;
-        const crown = new THREE.Mesh(
-          new THREE.BoxGeometry(width + 0.3, crownHeight, depth + 0.3),
-          new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.5, metalness: 0.2 })
-        );
-        crown.position.y = height + crownHeight / 2 - 0.1;
-        group.add(crown);
-      }
-
-      // Stepped/terraced design (classic)
-      else if (buildingStyle === 1 && height > 10) {
-        const stepHeight = height * 0.25;
-        const step = new THREE.Mesh(
-          new THREE.BoxGeometry(width * 0.75, stepHeight, depth * 0.75),
-          new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.7 })
-        );
-        step.position.y = height + stepHeight / 2;
-        group.add(step);
-
-        // Add another smaller step
-        const step2 = new THREE.Mesh(
-          new THREE.BoxGeometry(width * 0.5, stepHeight * 0.5, depth * 0.5),
-          new THREE.MeshStandardMaterial({ color: primaryColor, roughness: 0.7 })
-        );
-        step2.position.y = height + stepHeight + stepHeight * 0.25;
-        group.add(step2);
-      }
-
-      // Glass tower style (modern)
-      else if (buildingStyle === 2) {
-        const glassSection = new THREE.Mesh(
-          new THREE.BoxGeometry(width * 0.95, height * 0.3, depth * 0.95),
+        // Main building body
+        const mainBuilding = new THREE.Mesh(
+          new THREE.BoxGeometry(width, height, depth),
           new THREE.MeshStandardMaterial({
-            color: 0x88ccff,
-            roughness: 0.1,
-            metalness: 0.8,
-            transparent: true,
-            opacity: 0.6
+            color: shiftedPrimaryColor,
+            roughness: 0.7,
+            metalness: 0.1,
+            transparent: layer.opacity < 1,
+            opacity: layer.opacity
           })
         );
-        glassSection.position.y = height - (height * 0.15);
-        group.add(glassSection);
-      }
+        mainBuilding.position.y = height / 2;
+        mainBuilding.castShadow = layer.distance < 10; // Only close buildings cast shadows
+        mainBuilding.receiveShadow = true;
+        group.add(mainBuilding);
 
-      // Antenna/spire (tall buildings)
-      else if (buildingStyle === 3 && height > 12) {
-        const spire = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.08, 0.15, height * 0.25, 6),
-          new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8 })
-        );
-        spire.position.y = height + (height * 0.125);
-        group.add(spire);
-      }
+        // Add architectural features randomly
+        const buildingStyle = Math.floor(Math.random() * 5); // More style variety
 
-      // Art deco style
-      else if (buildingStyle === 4 && height > 8) {
-        const levels = 3;
-        for (let i = 0; i < levels; i++) {
-          const levelHeight = height * 0.15;
-          const levelWidth = width * (0.9 - i * 0.15);
-          const levelDepth = depth * (0.9 - i * 0.15);
-          const level = new THREE.Mesh(
-            new THREE.BoxGeometry(levelWidth, levelHeight, levelDepth),
+        // Top accent/crown (modern style)
+        if (buildingStyle === 0) {
+          const crownHeight = height * 0.12;
+          const crown = new THREE.Mesh(
+            new THREE.BoxGeometry(width + 0.3, crownHeight, depth + 0.3),
             new THREE.MeshStandardMaterial({
-              color: i % 2 === 0 ? accentColor : primaryColor,
-              roughness: 0.6
+              color: shiftedAccentColor,
+              roughness: 0.5,
+              metalness: 0.2,
+              transparent: layer.opacity < 1,
+              opacity: layer.opacity
             })
           );
-          level.position.y = height + (i * levelHeight) + levelHeight / 2;
-          group.add(level);
+          crown.position.y = height + crownHeight / 2 - 0.1;
+          group.add(crown);
         }
-      }
 
-      // Windows - optimized (fewer windows, only front face)
-      const floors = Math.min(Math.floor(height / 1.8), 5); // Max 5 floors
-      const windowsPerFloor = Math.min(Math.floor(width / 1.5), 2); // Max 2 windows
-      const windowLitProbability = timeOfDay === 'night' || timeOfDay === 'evening' ? 0.8 : 0.3;
-
-      for (let floor = 0; floor < floors; floor++) {
-        for (let w = 0; w < windowsPerFloor; w++) {
-          const isLit = Math.random() < windowLitProbability;
-          const windowColor = isLit ? colors.windowLit : colors.windowDark;
-          const emissiveColor = isLit ? colors.windowEmissive : 0x000000;
-
-          // Only front face window
-          const window1 = new THREE.Mesh(
-            new THREE.BoxGeometry(0.4, 0.5, 0.08),
+        // Stepped/terraced design (classic)
+        else if (buildingStyle === 1 && height > 10) {
+          const stepHeight = height * 0.25;
+          const step = new THREE.Mesh(
+            new THREE.BoxGeometry(width * 0.75, stepHeight, depth * 0.75),
             new THREE.MeshStandardMaterial({
-              color: windowColor,
-              emissive: emissiveColor,
-              emissiveIntensity: isLit ? 0.4 : 0,
-              roughness: 0.3
+              color: shiftedAccentColor,
+              roughness: 0.7,
+              transparent: layer.opacity < 1,
+              opacity: layer.opacity
             })
           );
-          const xOffset = -width / 2 + 0.6 + w * 1.5;
-          const yOffset = 1 + floor * 1.8;
-          window1.position.set(xOffset, yOffset, depth / 2 + 0.05);
-          group.add(window1);
-          buildingsRef.current.push({ mesh: window1, zPosition });
+          step.position.y = height + stepHeight / 2;
+          group.add(step);
+
+          // Add another smaller step
+          const step2 = new THREE.Mesh(
+            new THREE.BoxGeometry(width * 0.5, stepHeight * 0.5, depth * 0.5),
+            new THREE.MeshStandardMaterial({
+              color: shiftedPrimaryColor,
+              roughness: 0.7,
+              transparent: layer.opacity < 1,
+              opacity: layer.opacity
+            })
+          );
+          step2.position.y = height + stepHeight + stepHeight * 0.25;
+          group.add(step2);
         }
-      }
 
-      // Add seasonal decoration on roof (reduced probability)
-      const decoration = getSeasonalDecoration(season);
-      if (decoration && Math.random() < 0.15) {
-        const decor = new THREE.Mesh(
-          new THREE.BoxGeometry(width, 0.1, depth),
-          new THREE.MeshStandardMaterial({ color: decoration.color, roughness: 0.9 })
-        );
-        decor.position.y = height;
-        group.add(decor);
-        buildingsRef.current.push({ mesh: decor, zPosition });
-      }
+        // Glass tower style (modern)
+        else if (buildingStyle === 2) {
+          const glassColor = new THREE.Color(0x88ccff).lerp(new THREE.Color(fogColor), layer.colorShift);
+          const glassSection = new THREE.Mesh(
+            new THREE.BoxGeometry(width * 0.95, height * 0.3, depth * 0.95),
+            new THREE.MeshStandardMaterial({
+              color: glassColor,
+              roughness: 0.1,
+              metalness: 0.8,
+              transparent: true,
+              opacity: 0.6 * layer.opacity
+            })
+          );
+          glassSection.position.y = height - (height * 0.15);
+          group.add(glassSection);
+        }
 
-      // Add rooftop details (reduced probability for performance)
-      if (Math.random() < 0.2) {
-        const rooftopDetail = new THREE.Mesh(
-          new THREE.BoxGeometry(0.3, 1.5, 0.3),
-          new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.8 })
-        );
-        rooftopDetail.position.set(
-          (Math.random() - 0.5) * width * 0.5,
-          height + 0.75,
-          (Math.random() - 0.5) * depth * 0.5
-        );
-        group.add(rooftopDetail);
-        buildingsRef.current.push({ mesh: rooftopDetail, zPosition });
-      }
+        // Antenna/spire (tall buildings)
+        else if (buildingStyle === 3 && height > 12) {
+          const spireColor = new THREE.Color(0x888888).lerp(new THREE.Color(fogColor), layer.colorShift);
+          const spire = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.08, 0.15, height * 0.25, 6),
+            new THREE.MeshStandardMaterial({
+              color: spireColor,
+              metalness: 0.8,
+              transparent: layer.opacity < 1,
+              opacity: layer.opacity
+            })
+          );
+          spire.position.y = height + (height * 0.125);
+          group.add(spire);
+        }
 
-      group.position.set(buildingDistance * side, 0, zPosition);
-      scene.add(group);
-      buildingsRef.current.push({ mesh: group, zPosition });
+        // Art deco style
+        else if (buildingStyle === 4 && height > 8) {
+          const levels = 3;
+          for (let i = 0; i < levels; i++) {
+            const levelHeight = height * 0.15;
+            const levelWidth = width * (0.9 - i * 0.15);
+            const levelDepth = depth * (0.9 - i * 0.15);
+            const level = new THREE.Mesh(
+              new THREE.BoxGeometry(levelWidth, levelHeight, levelDepth),
+              new THREE.MeshStandardMaterial({
+                color: i % 2 === 0 ? shiftedAccentColor : shiftedPrimaryColor,
+                roughness: 0.6,
+                transparent: layer.opacity < 1,
+                opacity: layer.opacity
+              })
+            );
+            level.position.y = height + (i * levelHeight) + levelHeight / 2;
+            group.add(level);
+          }
+        }
+
+        // Windows - only add to foreground and mid-ground buildings for performance
+        if (layer.distance <= 9) {
+          const floors = Math.min(Math.floor(height / 1.8), 8); // More floors for taller buildings
+          const windowsPerFloor = Math.min(Math.floor(width / 1.2), 4); // More windows per floor
+          const windowLitProbability = timeOfDay === 'night' || timeOfDay === 'evening' ? 0.8 : 0.3;
+
+          for (let floor = 0; floor < floors; floor++) {
+            for (let w = 0; w < windowsPerFloor; w++) {
+              const isLit = Math.random() < windowLitProbability;
+              const windowColor = isLit ? colors.windowLit : colors.windowDark;
+              const emissiveColor = isLit ? colors.windowEmissive : 0x000000;
+
+              // Front face window
+              const window1 = new THREE.Mesh(
+                new THREE.BoxGeometry(0.35, 0.45, 0.08),
+                new THREE.MeshStandardMaterial({
+                  color: windowColor,
+                  emissive: emissiveColor,
+                  emissiveIntensity: isLit ? 0.4 : 0,
+                  roughness: 0.3,
+                  transparent: layer.opacity < 1,
+                  opacity: layer.opacity
+                })
+              );
+              const xOffset = -width / 2 + 0.5 + w * (width / (windowsPerFloor + 0.5));
+              const yOffset = 2 + floor * 1.8;
+              window1.position.set(xOffset, yOffset, depth / 2 + 0.05);
+              group.add(window1);
+            }
+          }
+
+          // Add storefront on ground floor (foreground buildings only)
+          if (layer.distance <= 6 && Math.random() < 0.6) {
+            const storefrontHeight = 2.5;
+            const storefront = new THREE.Mesh(
+              new THREE.BoxGeometry(width * 0.8, storefrontHeight, 0.1),
+              new THREE.MeshStandardMaterial({
+                color: 0x2a2a2a,
+                metalness: 0.6,
+                roughness: 0.2,
+                transparent: true,
+                opacity: 0.7
+              })
+            );
+            storefront.position.set(0, storefrontHeight / 2, depth / 2 + 0.06);
+            group.add(storefront);
+
+            // Storefront sign/awning
+            if (Math.random() < 0.7) {
+              const awning = new THREE.Mesh(
+                new THREE.BoxGeometry(width * 0.85, 0.15, 0.4),
+                new THREE.MeshStandardMaterial({
+                  color: [0xff6b6b, 0x4ecdc4, 0xffe66d, 0x95e1d3][Math.floor(Math.random() * 4)],
+                  roughness: 0.8
+                })
+              );
+              awning.position.set(0, storefrontHeight + 0.1, depth / 2 + 0.3);
+              group.add(awning);
+            }
+          }
+
+          // Add fire escape (mid-height buildings, foreground only)
+          if (layer.distance <= 6 && height > 10 && Math.random() < 0.4) {
+            const fireEscapeLevels = Math.min(Math.floor(height / 3), 5);
+            for (let i = 0; i < fireEscapeLevels; i++) {
+              const platform = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.05, 0.6),
+                new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.5 })
+              );
+              platform.position.set(width / 2 + 0.3, 3 + i * 3, 0);
+              group.add(platform);
+
+              // Railing
+              const railing = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.5, 0.02),
+                new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.6 })
+              );
+              railing.position.set(width / 2 + 0.3, 3.5 + i * 3, 0.3);
+              group.add(railing);
+            }
+          }
+        }
+
+        // Add seasonal decoration on roof (foreground only)
+        if (layer.distance <= 6) {
+          const decoration = getSeasonalDecoration(season);
+          if (decoration && Math.random() < 0.15) {
+            const decor = new THREE.Mesh(
+              new THREE.BoxGeometry(width, 0.1, depth),
+              new THREE.MeshStandardMaterial({
+                color: decoration.color,
+                roughness: 0.9,
+                transparent: layer.opacity < 1,
+                opacity: layer.opacity
+              })
+            );
+            decor.position.y = height;
+            group.add(decor);
+          }
+        }
+
+        // Add diverse rooftop details (increased probability and variety)
+        const rooftopDetailCount = layer.distance <= 9 ? Math.floor(Math.random() * 3) + 1 : 0;
+        for (let i = 0; i < rooftopDetailCount; i++) {
+          const detailType = Math.floor(Math.random() * 5);
+
+          // Water tower
+          if (detailType === 0) {
+            const waterTower = new THREE.Group();
+            const tank = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.3, 0.3, 0.8, 8),
+              new THREE.MeshStandardMaterial({ color: 0x666666, metalness: 0.4 })
+            );
+            tank.position.y = height + 0.8;
+            waterTower.add(tank);
+
+            const legs = new THREE.Mesh(
+              new THREE.BoxGeometry(0.4, 0.5, 0.4),
+              new THREE.MeshStandardMaterial({ color: 0x444444 })
+            );
+            legs.position.y = height + 0.25;
+            waterTower.add(legs);
+
+            waterTower.position.set(
+              (Math.random() - 0.5) * width * 0.6,
+              0,
+              (Math.random() - 0.5) * depth * 0.6
+            );
+            group.add(waterTower);
+          }
+          // AC unit
+          else if (detailType === 1) {
+            const acUnit = new THREE.Mesh(
+              new THREE.BoxGeometry(0.4, 0.3, 0.5),
+              new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.3 })
+            );
+            acUnit.position.set(
+              (Math.random() - 0.5) * width * 0.7,
+              height + 0.15,
+              (Math.random() - 0.5) * depth * 0.7
+            );
+            group.add(acUnit);
+          }
+          // Antenna
+          else if (detailType === 2) {
+            const antenna = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.03, 0.03, 2, 6),
+              new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7 })
+            );
+            antenna.position.set(
+              (Math.random() - 0.5) * width * 0.5,
+              height + 1,
+              (Math.random() - 0.5) * depth * 0.5
+            );
+            group.add(antenna);
+          }
+          // Chimney
+          else if (detailType === 3) {
+            const chimney = new THREE.Mesh(
+              new THREE.BoxGeometry(0.3, 1.2, 0.3),
+              new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.9 })
+            );
+            chimney.position.set(
+              (Math.random() - 0.5) * width * 0.6,
+              height + 0.6,
+              (Math.random() - 0.5) * depth * 0.6
+            );
+            group.add(chimney);
+          }
+          // Satellite dish
+          else {
+            const dish = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.25, 0.1, 0.1, 12),
+              new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8 })
+            );
+            dish.rotation.x = Math.PI / 3;
+            dish.position.set(
+              (Math.random() - 0.5) * width * 0.7,
+              height + 0.3,
+              (Math.random() - 0.5) * depth * 0.7
+            );
+            group.add(dish);
+          }
+        }
+
+        group.position.set(layer.distance * side, 0, zPosition);
+        scene.add(group);
+        buildingsRef.current.push({ mesh: group, zPosition });
+      });
     });
   };
 
@@ -549,7 +820,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   const generateBuildingsAhead = (scene: THREE.Scene, playerZ: number) => {
     const lookAhead = 60; // Generate buildings 60 units ahead
     const targetZ = playerZ - lookAhead;
-    const buildingSpacing = 3.5; // Increased spacing for fewer buildings
+    const buildingSpacing = 1.5; // Reduced spacing for denser cityscape (was 3.5)
 
     // Generate buildings up to target
     while (furthestBuildingZRef.current > targetZ) {
