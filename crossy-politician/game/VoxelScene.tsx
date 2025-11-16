@@ -241,38 +241,17 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       curbRight.position.set(width / 2 - 0.075, curbHeight / 2, 0);
       g.add(curbRight);
 
-      // Sidewalk edge detail
-      const edgeLeft = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.03, 1),
-        new THREE.MeshStandardMaterial({ color: 0xa0a5ac })
-      );
-      edgeLeft.position.set(-width / 2 + 0.2, 0.01, 0);
-      g.add(edgeLeft);
+      // OPTIMIZED: Removed edge details for better performance
 
-      const edgeRight = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.03, 1),
-        new THREE.MeshStandardMaterial({ color: 0xa0a5ac })
-      );
-      edgeRight.position.set(width / 2 - 0.2, 0.01, 0);
-      g.add(edgeRight);
-
-      // Occasionally add manhole cover
-      if (Math.random() < 0.15) {
+      // OPTIMIZED: Reduced manhole frequency and complexity
+      if (Math.random() < 0.08) {
         const manhole = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.25, 0.25, 0.02, 16),
+          new THREE.CylinderGeometry(0.25, 0.25, 0.02, 8), // OPTIMIZED: 8 segments instead of 16
           new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.5, roughness: 0.7 })
         );
         manhole.rotation.x = Math.PI / 2;
         manhole.position.set((Math.random() - 0.5) * width * 0.6, 0.011, 0);
         g.add(manhole);
-
-        // Manhole detail lines
-        const line1 = new THREE.Mesh(
-          new THREE.BoxGeometry(0.3, 0.01, 0.02),
-          new THREE.MeshStandardMaterial({ color: 0x555555 })
-        );
-        line1.position.set(manhole.position.x, 0.012, 0);
-        g.add(line1);
       }
 
     } else {
@@ -284,19 +263,19 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       base.receiveShadow = true;
       g.add(base);
 
-      // Center dashed line
+      // Center dashed line (OPTIMIZED: 3 dashes instead of 4)
       const dashMat = new THREE.MeshStandardMaterial({ color: 0xf4d756 });
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 3; i++) {
         const dash = new THREE.Mesh(
           new THREE.BoxGeometry(0.15, 0.01, 0.4),
           dashMat
         );
-        dash.position.set(0, 0.011, -0.4 + i * 0.3);
+        dash.position.set(0, 0.011, -0.3 + i * 0.3);
         g.add(dash);
       }
 
-      // Occasionally add crosswalk
-      if (Math.random() < 0.12) {
+      // OPTIMIZED: Reduced crosswalk frequency
+      if (Math.random() < 0.06) {
         const crosswalkMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
         for (let i = 0; i < 5; i++) {
           const stripe = new THREE.Mesh(
@@ -308,10 +287,10 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         }
       }
 
-      // Occasionally add manhole cover on road
-      if (Math.random() < 0.08) {
+      // OPTIMIZED: Reduced manhole frequency and complexity
+      if (Math.random() < 0.04) {
         const manhole = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.25, 0.25, 0.02, 16),
+          new THREE.CylinderGeometry(0.25, 0.25, 0.02, 8), // OPTIMIZED: 8 segments instead of 16
           new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.5, roughness: 0.7 })
         );
         manhole.rotation.x = Math.PI / 2;
@@ -464,15 +443,12 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     const fogColor = getLightingConfig(environmentRef.current).fogColor;
 
     // Create multiple layers of buildings for depth
+    // OPTIMIZED: Reduced from 4 to 2 layers for better performance
     // Layer 1 (Foreground): Close to street at x = ±5.5
-    // Layer 2 (Mid-ground): At x = ±9
-    // Layer 3 (Background): At x = ±13
-    // Layer 4 (Far background): At x = ±18
+    // Layer 2 (Background): At x = ±11
     const buildingLayers = [
       { distance: 5.5, heightRange: [8, 18], widthRange: [2, 4], depthRange: [2, 4], opacity: 1.0, colorShift: 0 },
-      { distance: 9, heightRange: [10, 22], widthRange: [2.5, 5], depthRange: [3, 6], opacity: 0.95, colorShift: 0.05 },
-      { distance: 13, heightRange: [12, 25], widthRange: [3, 6], depthRange: [3, 7], opacity: 0.85, colorShift: 0.12 },
-      { distance: 18, heightRange: [15, 30], widthRange: [4, 8], depthRange: [4, 8], opacity: 0.7, colorShift: 0.2 },
+      { distance: 11, heightRange: [12, 25], widthRange: [3, 6], depthRange: [3, 7], opacity: 0.8, colorShift: 0.15 },
     ];
 
     // Create buildings for each layer
@@ -612,10 +588,10 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           }
         }
 
-        // Windows - only add to foreground and mid-ground buildings for performance
-        if (layer.distance <= 9) {
-          const floors = Math.min(Math.floor(height / 1.8), 8); // More floors for taller buildings
-          const windowsPerFloor = Math.min(Math.floor(width / 1.2), 4); // More windows per floor
+        // Windows - only add to foreground buildings for performance (OPTIMIZED)
+        if (layer.distance <= 6) {
+          const floors = Math.min(Math.floor(height / 2.2), 5); // OPTIMIZED: Reduced floors
+          const windowsPerFloor = Math.min(Math.floor(width / 1.5), 3); // OPTIMIZED: Fewer windows
           const windowLitProbability = timeOfDay === 'night' || timeOfDay === 'evening' ? 0.8 : 0.3;
 
           for (let floor = 0; floor < floors; floor++) {
@@ -673,9 +649,9 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
             }
           }
 
-          // Add fire escape (mid-height buildings, foreground only)
-          if (layer.distance <= 6 && height > 10 && Math.random() < 0.4) {
-            const fireEscapeLevels = Math.min(Math.floor(height / 3), 5);
+          // OPTIMIZED: Reduced fire escape frequency
+          if (layer.distance <= 6 && height > 10 && Math.random() < 0.2) {
+            const fireEscapeLevels = Math.min(Math.floor(height / 4), 3); // OPTIMIZED: Fewer levels
             for (let i = 0; i < fireEscapeLevels; i++) {
               const platform = new THREE.Mesh(
                 new THREE.BoxGeometry(0.8, 0.05, 0.6),
@@ -683,14 +659,6 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
               );
               platform.position.set(width / 2 + 0.3, 3 + i * 3, 0);
               group.add(platform);
-
-              // Railing
-              const railing = new THREE.Mesh(
-                new THREE.BoxGeometry(0.8, 0.5, 0.02),
-                new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.6 })
-              );
-              railing.position.set(width / 2 + 0.3, 3.5 + i * 3, 0.3);
-              group.add(railing);
             }
           }
         }
@@ -713,8 +681,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           }
         }
 
-        // Add diverse rooftop details (increased probability and variety)
-        const rooftopDetailCount = layer.distance <= 9 ? Math.floor(Math.random() * 3) + 1 : 0;
+        // OPTIMIZED: Reduced rooftop details (foreground only, fewer items)
+        const rooftopDetailCount = layer.distance <= 6 ? Math.floor(Math.random() * 2) : 0;
         for (let i = 0; i < rooftopDetailCount; i++) {
           const detailType = Math.floor(Math.random() * 5);
 
@@ -993,7 +961,10 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
       console.log('VoxelScene: Creating renderer');
       const renderer = new Renderer({ gl });
-      renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
+      // Use reduced resolution for better performance (0.75x scale)
+      const renderWidth = gl.drawingBufferWidth * 0.75;
+      const renderHeight = gl.drawingBufferHeight * 0.75;
+      renderer.setSize(renderWidth, renderHeight);
       renderer.setClearColor(lighting.skyColor, 1);
       // Disable shadows for better performance
       renderer.shadowMap.enabled = false;
@@ -1009,7 +980,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       console.log('VoxelScene: Creating camera');
       const camera = new THREE.PerspectiveCamera(
         60,
-        gl.drawingBufferWidth / gl.drawingBufferHeight,
+        renderWidth / renderHeight, // Use optimized render dimensions
         0.1,
         1000
       );
