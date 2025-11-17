@@ -26,6 +26,7 @@ import {
   type EnvironmentConfig,
   type BuildingColors,
 } from './environment';
+import { analytics } from '../lib/analytics';
 
 interface CarObject {
   mesh: THREE.Group;
@@ -116,6 +117,13 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     initSounds();
     gameStartTimeRef.current = Date.now();
     console.log('VoxelScene: Sounds initialized');
+
+    // Track environment generation
+    analytics.trackEnvironmentGenerated({
+      season: environmentRef.current.season,
+      timeOfDay: environmentRef.current.timeOfDay,
+      weather: environmentRef.current.weather,
+    });
 
     // Cleanup on unmount
     return () => {
@@ -918,13 +926,17 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         gameStatsRef.current.jumps++;
       }
     } else if (dir === 'left') {
-      if (playerColRef.current > 0) {
+      // Prevent going into buildings (x > -5 means col > -0.5)
+      const nextX = (playerColRef.current - 1) - COLS / 2;
+      if (nextX > -4.5) {
         playerColRef.current--;
         targetPosRef.current.x = playerColRef.current - COLS / 2;
         gameStatsRef.current.jumps++;
       }
     } else if (dir === 'right') {
-      if (playerColRef.current < COLS - 1) {
+      // Prevent going into buildings (x < 5 means col < 9.5)
+      const nextX = (playerColRef.current + 1) - COLS / 2;
+      if (nextX < 4.5) {
         playerColRef.current++;
         targetPosRef.current.x = playerColRef.current - COLS / 2;
         gameStatsRef.current.jumps++;
@@ -961,9 +973,9 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
       console.log('VoxelScene: Creating renderer');
       const renderer = new Renderer({ gl });
-      // Use reduced resolution for better performance (0.75x scale)
-      const renderWidth = gl.drawingBufferWidth * 0.75;
-      const renderHeight = gl.drawingBufferHeight * 0.75;
+      // Use full resolution for proper display
+      const renderWidth = gl.drawingBufferWidth;
+      const renderHeight = gl.drawingBufferHeight;
       renderer.setSize(renderWidth, renderHeight);
       renderer.setClearColor(lighting.skyColor, 1);
       // Disable shadows for better performance
@@ -980,7 +992,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       console.log('VoxelScene: Creating camera');
       const camera = new THREE.PerspectiveCamera(
         60,
-        renderWidth / renderHeight, // Use optimized render dimensions
+        renderWidth / renderHeight,
         0.1,
         1000
       );

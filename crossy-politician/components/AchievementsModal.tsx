@@ -18,13 +18,19 @@ export default function AchievementsModal({
 }: AchievementsModalProps) {
   const unlockedCount = achievements.filter(a => a.unlocked).length;
   const totalCount = achievements.length;
-  const progressPercent = Math.round((unlockedCount / totalCount) * 100);
+  const progressPercent = totalCount > 0 ? Math.round((unlockedCount / totalCount) * 100) : 0;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true}>
+    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
           <Text style={styles.title}>Achievements</Text>
+
+          {achievements.length === 0 && (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>Loading achievements...</Text>
+            </View>
+          )}
 
           <View style={styles.progressContainer}>
             <Text style={styles.progressText}>
@@ -231,5 +237,15 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    color: '#9db4d1',
+    fontSize: 16,
+    textAlign: 'center',
   },
 });

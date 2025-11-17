@@ -8,6 +8,7 @@ import {
   updateUserStats,
 } from '../lib/achievementsApi';
 import type { Achievement, AchievementStats } from './achievementsManager';
+import { analytics } from '../lib/analytics';
 
 const ACHIEVEMENT_DEFINITIONS: Omit<Achievement, 'unlocked'>[] = [
   { id: 'first_steps', title: 'First Steps', description: 'Complete your first hop', icon: '🐣' },
@@ -129,7 +130,16 @@ export function useAchievementsWithPersistence() {
           const updated = prev.map(a =>
             a.id === id ? { ...a, unlocked: true } : a
           );
-          setUnlockedThisSession(current => [...current, { ...achievement, unlocked: true }]);
+          const unlockedAchievement = { ...achievement, unlocked: true };
+          setUnlockedThisSession(current => [...current, unlockedAchievement]);
+
+          // Track achievement unlock in analytics
+          analytics.trackAchievementUnlocked({
+            id: achievement.id,
+            title: achievement.title,
+            description: achievement.description,
+          });
+
           return updated;
         }
         return prev;

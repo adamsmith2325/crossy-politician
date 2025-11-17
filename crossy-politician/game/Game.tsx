@@ -1,6 +1,6 @@
 // src/game/Game.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, TextInput, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import VoxelScene from './VoxelScene';
 import Leaderboard from '../components/Leaderboard';
 import AchievementsModal from '../components/AchievementsModal';
@@ -8,6 +8,7 @@ import { saveScore } from '../lib/leaderboard';
 import BannerAd from '../ads/BannerAd';
 import { interstitialAdManager } from '../ads/InterstitialAdManager';
 import { useAchievementsWithPersistence } from './achievementsManagerWithPersistence';
+import { analytics } from '../lib/analytics';
 
 type GameState = 'menu' | 'playing' | 'gameOver';
 
@@ -48,6 +49,9 @@ export default function Game() {
     setSavedScore(false);
     setGameKey(prev => prev + 1); // Force remount of VoxelScene
     setGameState('playing');
+
+    // Track game start
+    analytics.trackGameStart();
   };
 
   const handleGameOver = (finalScore: number, time: number, gameStats?: {
@@ -71,6 +75,19 @@ export default function Game() {
       });
     }
 
+    // Track game over event with stats
+    if (gameStats) {
+      analytics.trackGameOver({
+        score: finalScore,
+        survivalTime: time,
+        dodges: gameStats.dodges,
+        jumps: gameStats.jumps,
+        busesDodged: gameStats.busesDodged,
+        policeDodged: gameStats.policeDodged,
+        closeCall: gameStats.closeCall,
+      });
+    }
+
     // Show interstitial ad every 5 games
     interstitialAdManager.onGameEnd();
   };
@@ -84,10 +101,17 @@ export default function Game() {
     // Save username for future use and initialize profile
     await saveUsername(username.trim());
 
+    // Identify user in analytics
+    await analytics.identifyUser(username.trim());
+    await analytics.trackUsernameSet(username.trim());
+
     const success = await saveScore(username.trim(), score);
     if (success) {
       setSavedScore(true);
       setViewingLeaderboard(true);
+
+      // Track score submission
+      await analytics.trackScoreSubmitted(score, username.trim());
     } else {
       alert('Failed to save score. Please try again.');
     }
@@ -100,6 +124,9 @@ export default function Game() {
     setSavedScore(false);
     setUsername('');
     resetSessionAchievements();
+
+    // Track menu navigation
+    analytics.trackMenuNavigation('main_menu');
   };
 
   if (gameState === 'playing') {
@@ -127,6 +154,12 @@ export default function Game() {
               <Text style={styles.buttonText}>Back to Menu</Text>
             </TouchableOpacity>
           </View>
+          <AchievementsModal
+            visible={viewingAchievements}
+            achievements={achievements}
+            unlockedThisSession={unlockedThisSession}
+            onClose={() => setViewingAchievements(false)}
+          />
         </View>
       );
     }
@@ -139,7 +172,11 @@ export default function Game() {
         style={styles.gameOverContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.gameOverContent}>
+        <ScrollView
+          style={styles.gameOverScroll}
+          contentContainerStyle={styles.gameOverContent}
+          showsVerticalScrollIndicator={true}
+        >
           {/* Header */}
           <View style={styles.gameOverHeader}>
             <Text style={styles.gameOverTitle}>Game Over</Text>
@@ -237,7 +274,10 @@ export default function Game() {
 
             <TouchableOpacity
               style={styles.achievementsButtonAlt}
-              onPress={() => setViewingAchievements(true)}
+              onPress={() => {
+                setViewingAchievements(true);
+                analytics.trackAchievementsViewed(achievements.length, achievements.filter(a => a.unlocked).length);
+              }}
             >
               <Text style={styles.achievementsButtonAltText}>
                 View All Achievements
@@ -248,7 +288,14 @@ export default function Game() {
               <Text style={styles.menuButtonText}>Main Menu</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </ScrollView>
+
+        <AchievementsModal
+          visible={viewingAchievements}
+          achievements={achievements}
+          unlockedThisSession={unlockedThisSession}
+          onClose={() => setViewingAchievements(false)}
+        />
       </KeyboardAvoidingView>
     );
   }
@@ -262,14 +309,22 @@ export default function Game() {
         <TouchableOpacity style={styles.button} onPress={startGame}>
           <Text style={styles.buttonText}>Start Game</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => setViewingLeaderboard(true)}>
+        <TouchableOpacity style={styles.secondaryButton} onPress={() => {
+          setViewingLeaderboard(true);
+          analytics.trackMenuNavigation('leaderboard');
+          analytics.trackLeaderboardViewed();
+        }}>
           <Text style={styles.secondaryButtonText}>Leaderboard</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.achievementsButton}
-          onPress={() => setViewingAchievements(true)}
+          onPress={() => {
+            setViewingAchievements(true);
+            analytics.trackMenuNavigation('achievements');
+            analytics.trackAchievementsViewed(achievements.length, achievements.filter(a => a.unlocked).length);
+          }}
         >
-          <Text style={styles.buttonText}>🏆 Achievements</Text>
+          <Text style={styles.achievementsButtonText}>Achievements</Text>
         </TouchableOpacity>
         {best > 0 && <Text style={styles.best}>Personal Best: {best}</Text>}
       </View>
@@ -324,10 +379,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0b1220',
   },
-  gameOverContent: {
+  gameOverScroll: {
     flex: 1,
+  },
+  gameOverContent: {
     padding: 20,
     paddingTop: 40,
+    paddingBottom: 40,
   },
   gameOverHeader: {
     alignItems: 'center',
@@ -609,12 +667,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#0b1220',
   },
   achievementsButton: {
-    backgroundColor: '#ffd966',
+    backgroundColor: '#2a3a50',
     padding: 14,
     paddingHorizontal: 40,
     borderRadius: 8,
     marginBottom: 12,
     minWidth: 200,
     alignItems: 'center',
+  },
+  achievementsButtonText: {
+    color: '#9db4d1',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

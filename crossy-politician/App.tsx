@@ -8,6 +8,7 @@ import mobileAds from 'react-native-google-mobile-ads';
 
 import Game from './game/Game'; // <-- inside this file, use: `import { THREE } from 'expo-three'`
 import { appOpenAdManager } from './ads/AppOpenAdManager';
+import { analytics } from './lib/analytics';
 
 export default function App() {
   const appState = useRef(AppState.currentState);
@@ -21,6 +22,14 @@ export default function App() {
         }
       } catch {
         // ignore ATT errors
+      }
+
+      // Initialize Mixpanel Analytics
+      try {
+        await analytics.initialize();
+        await analytics.trackAppOpen();
+      } catch (error) {
+        console.error('Failed to initialize analytics:', error);
       }
 
       // Initialize Google Mobile Ads SDK
