@@ -545,8 +545,8 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     backgroundColor: '#2a3a50',
-    padding: 12,
-    paddingHorizontal: 30,
+    padding: 14,
+    paddingHorizontal: 40,
     borderRadius: 8,
     marginBottom: 12,
     minWidth: 200,
@@ -613,6 +613,7 @@ const styles = StyleSheet.create({
     padding: 14,
     paddingHorizontal: 40,
     borderRadius: 8,
+    marginBottom: 12,
     minWidth: 200,
     alignItems: 'center',
   },
