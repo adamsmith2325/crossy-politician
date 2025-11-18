@@ -26,74 +26,76 @@ export default function AchievementsModal({
         <View style={styles.modalContainer}>
           <Text style={styles.title}>Achievements</Text>
 
-          {achievements.length === 0 && (
+          {achievements.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>Loading achievements...</Text>
             </View>
-          )}
-
-          <View style={styles.progressContainer}>
-            <Text style={styles.progressText}>
-              {unlockedCount} / {totalCount} ({progressPercent}%)
-            </Text>
-            <View style={styles.progressBar}>
-              <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
-            </View>
-          </View>
-
-          {unlockedThisSession.length > 0 && (
-            <View style={styles.newAchievementsContainer}>
-              <Text style={styles.newAchievementsTitle}>🎉 Unlocked This Session!</Text>
-              {unlockedThisSession.map(achievement => (
-                <View key={achievement.id} style={styles.newAchievementItem}>
-                  <Text style={styles.achievementIcon}>{achievement.icon}</Text>
-                  <Text style={styles.newAchievementText}>{achievement.title}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-
-          <ScrollView style={styles.achievementsList}>
-            {achievements.map(achievement => (
-              <View
-                key={achievement.id}
-                style={[
-                  styles.achievementItem,
-                  achievement.unlocked && styles.achievementUnlocked,
-                ]}
-              >
-                <View style={styles.achievementIconContainer}>
-                  <Text style={[
-                    styles.achievementIcon,
-                    !achievement.unlocked && styles.achievementIconLocked
-                  ]}>
-                    {achievement.unlocked ? achievement.icon : '🔒'}
-                  </Text>
-                </View>
-                <View style={styles.achievementTextContainer}>
-                  <Text style={[
-                    styles.achievementTitle,
-                    !achievement.unlocked && styles.achievementTitleLocked
-                  ]}>
-                    {achievement.title}
-                  </Text>
-                  <Text style={styles.achievementDescription}>
-                    {achievement.description}
-                  </Text>
-                  {achievement.progress !== undefined && achievement.maxProgress !== undefined && (
-                    <View style={styles.achievementProgressBar}>
-                      <View
-                        style={[
-                          styles.achievementProgressFill,
-                          { width: `${(achievement.progress / achievement.maxProgress) * 100}%` }
-                        ]}
-                      />
-                    </View>
-                  )}
+          ) : (
+            <>
+              <View style={styles.progressContainer}>
+                <Text style={styles.progressText}>
+                  {unlockedCount} / {totalCount} ({progressPercent}%)
+                </Text>
+                <View style={styles.progressBar}>
+                  <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
                 </View>
               </View>
-            ))}
-          </ScrollView>
+
+              {unlockedThisSession.length > 0 && (
+                <View style={styles.newAchievementsContainer}>
+                  <Text style={styles.newAchievementsTitle}>🎉 Unlocked This Session!</Text>
+                  {unlockedThisSession.map(achievement => (
+                    <View key={achievement.id} style={styles.newAchievementItem}>
+                      <Text style={styles.achievementIcon}>{achievement.icon}</Text>
+                      <Text style={styles.newAchievementText}>{achievement.title}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <ScrollView style={styles.achievementsList} showsVerticalScrollIndicator={true}>
+                {achievements.map(achievement => (
+                  <View
+                    key={achievement.id}
+                    style={[
+                      styles.achievementItem,
+                      achievement.unlocked && styles.achievementUnlocked,
+                    ]}
+                  >
+                    <View style={styles.achievementIconContainer}>
+                      <Text style={[
+                        styles.achievementIcon,
+                        !achievement.unlocked && styles.achievementIconLocked
+                      ]}>
+                        {achievement.unlocked ? achievement.icon : '🔒'}
+                      </Text>
+                    </View>
+                    <View style={styles.achievementTextContainer}>
+                      <Text style={[
+                        styles.achievementTitle,
+                        !achievement.unlocked && styles.achievementTitleLocked
+                      ]}>
+                        {achievement.title}
+                      </Text>
+                      <Text style={styles.achievementDescription}>
+                        {achievement.description}
+                      </Text>
+                      {achievement.progress !== undefined && achievement.maxProgress !== undefined && (
+                        <View style={styles.achievementProgressBar}>
+                          <View
+                            style={[
+                              styles.achievementProgressFill,
+                              { width: `${(achievement.progress / achievement.maxProgress) * 100}%` }
+                            ]}
+                          />
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            </>
+          )}
 
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
             <Text style={styles.closeButtonText}>Close</Text>
@@ -173,7 +175,8 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   achievementsList: {
-    flex: 1,
+    maxHeight: 400,
+    marginBottom: 16,
   },
   achievementItem: {
     flexDirection: 'row',

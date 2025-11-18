@@ -89,9 +89,11 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   const hitAnimationTimeRef = useRef(0);
   const hitDirectionRef = useRef({ x: 0, z: 0 });
 
-  // Track furthest lane generated
+  // Track furthest and earliest lanes generated
   const furthestLaneRef = useRef(-1);
+  const earliestLaneRef = useRef(1); // Start at 1 so lane 0 can be generated
   const furthestBuildingZRef = useRef(0);
+  const earliestBuildingZRef = useRef(0);
 
   // Environment state
   const environmentRef = useRef<EnvironmentConfig>(generateRandomEnvironment());
@@ -316,7 +318,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       return;
     }
 
-    const tile = buildCityTile(COLS, lane.type);
+    // Make lanes wider for infinite horizontal scrolling - 40 units wide
+    const tile = buildCityTile(40, lane.type);
     tile.position.set(0, 0, -lane.idx);
     scene.add(tile);
     laneObjectsRef.current.set(lane.idx, tile);
@@ -450,13 +453,13 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     const timeOfDay = environmentRef.current.timeOfDay;
     const fogColor = getLightingConfig(environmentRef.current).fogColor;
 
-    // Create multiple layers of buildings for depth
-    // OPTIMIZED: Reduced from 4 to 2 layers for better performance
-    // Layer 1 (Foreground): Close to street at x = ±5.5
-    // Layer 2 (Background): At x = ±11
+    // Create multiple layers of buildings for depth - positioned just outside playable area
+    // With 40-unit wide lanes (±20), place buildings at ±25 and ±35
+    // Layer 1 (Foreground): Close to street at x = ±25
+    // Layer 2 (Background): Further back at x = ±35
     const buildingLayers = [
-      { distance: 5.5, heightRange: [8, 18], widthRange: [2, 4], depthRange: [2, 4], opacity: 1.0, colorShift: 0 },
-      { distance: 11, heightRange: [12, 25], widthRange: [3, 6], depthRange: [3, 7], opacity: 0.8, colorShift: 0.15 },
+      { distance: 25, heightRange: [8, 18], widthRange: [2, 4], depthRange: [2, 4], opacity: 1.0, colorShift: 0 },
+      { distance: 35, heightRange: [12, 25], widthRange: [3, 6], depthRange: [3, 7], opacity: 0.8, colorShift: 0.15 },
     ];
 
     // Create buildings for each layer
@@ -781,7 +784,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   };
 
   const generateLanesAhead = (scene: THREE.Scene, playerRow: number) => {
-    const lookAhead = 15; // Generate lanes 15 rows ahead
+    const lookAhead = 40; // Reduced from 80 for better performance - camera angle will show more
     const targetRow = playerRow + lookAhead;
 
     // Generate lanes up to target
@@ -793,8 +796,21 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     }
   };
 
+  const generateLanesBehind = (scene: THREE.Scene, playerRow: number) => {
+    const lookBehind = 10; // Reduced from 20 for better performance
+    const targetRow = playerRow - lookBehind;
+
+    // Generate lanes backward from earliest
+    while (earliestLaneRef.current > targetRow) {
+      earliestLaneRef.current--;
+      const lane = createLane(earliestLaneRef.current, score);
+      lanesRef.current.push(lane);
+      addLaneToScene(lane, scene);
+    }
+  };
+
   const generateBuildingsAhead = (scene: THREE.Scene, playerZ: number) => {
-    const lookAhead = 60; // Generate buildings 60 units ahead
+    const lookAhead = 100; // Reduced from 200 for better performance
     const targetZ = playerZ - lookAhead;
     const buildingSpacing = 1.5; // Reduced spacing for denser cityscape (was 3.5)
 
@@ -805,9 +821,21 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     }
   };
 
+  const generateBuildingsBehind = (scene: THREE.Scene, playerZ: number) => {
+    const lookBehind = 30; // Reduced from 50 for better performance
+    const targetZ = playerZ + lookBehind;
+    const buildingSpacing = 1.5;
+
+    // Generate buildings backward from earliest
+    while (earliestBuildingZRef.current < targetZ) {
+      earliestBuildingZRef.current += buildingSpacing;
+      addBuilding(scene, earliestBuildingZRef.current);
+    }
+  };
+
   const cleanupOldObjects = (scene: THREE.Scene, playerRow: number, playerZ: number) => {
-    const cleanupDistanceLanes = 10; // Remove lanes 10 rows behind
-    const cleanupDistanceBuildings = 30; // Remove buildings 30 units behind
+    const cleanupDistanceLanes = 15; // Remove lanes 15 rows behind
+    const cleanupDistanceBuildings = 40; // Remove buildings 40 units behind
 
     // Cleanup old lanes
     lanesRef.current = lanesRef.current.filter(lane => {
@@ -926,21 +954,15 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         gameStatsRef.current.jumps++;
       }
     } else if (dir === 'left') {
-      // Prevent going into buildings (x > -5 means col > -0.5)
-      const nextX = (playerColRef.current - 1) - COLS / 2;
-      if (nextX > -4.5) {
-        playerColRef.current--;
-        targetPosRef.current.x = playerColRef.current - COLS / 2;
-        gameStatsRef.current.jumps++;
-      }
+      // Infinite movement - no boundaries
+      playerColRef.current--;
+      targetPosRef.current.x = playerColRef.current - COLS / 2;
+      gameStatsRef.current.jumps++;
     } else if (dir === 'right') {
-      // Prevent going into buildings (x < 5 means col < 9.5)
-      const nextX = (playerColRef.current + 1) - COLS / 2;
-      if (nextX < 4.5) {
-        playerColRef.current++;
-        targetPosRef.current.x = playerColRef.current - COLS / 2;
-        gameStatsRef.current.jumps++;
-      }
+      // Infinite movement - no boundaries
+      playerColRef.current++;
+      targetPosRef.current.x = playerColRef.current - COLS / 2;
+      gameStatsRef.current.jumps++;
     }
 
     // Calculate jump direction for animation
@@ -953,10 +975,12 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     isMovingRef.current = true;
     play('move');
 
-    // Generate more lanes and buildings as needed
+    // Generate more lanes and buildings as needed (both ahead and behind)
     if (sceneRef.current) {
       generateLanesAhead(sceneRef.current, playerRowRef.current);
+      generateLanesBehind(sceneRef.current, playerRowRef.current);
       generateBuildingsAhead(sceneRef.current, -playerRowRef.current);
+      generateBuildingsBehind(sceneRef.current, -playerRowRef.current);
       cleanupOldObjects(sceneRef.current, playerRowRef.current, -playerRowRef.current);
     }
   };
@@ -991,14 +1015,16 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
       console.log('VoxelScene: Creating camera');
       const camera = new THREE.PerspectiveCamera(
-        60,
+        65, // Slightly wider FOV to fill screen edge-to-edge
         renderWidth / renderHeight,
         0.1,
         1000
       );
-      // Adjusted camera position to prevent seeing through buildings
-      camera.position.set(3, 5, 6);
-      camera.lookAt(0, 0, -2);
+      // Position camera higher, further back, angled down to see more surroundings
+      camera.position.set(0, 8, 7);
+      camera.lookAt(0, 0, -15);
+      // Rotate camera 10 degrees to the right (around Y axis)
+      camera.rotation.y = 0.175; // 10 degrees in radians (10 * Math.PI / 180)
       cameraRef.current = camera;
       console.log('VoxelScene: Camera created');
 
@@ -1027,15 +1053,18 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       scene.add(ambientLight);
       console.log('VoxelScene: Lights created');
 
-      // Generate initial lanes
+      // Generate initial lanes both ahead and behind
       console.log('VoxelScene: Generating lanes');
       generateLanesAhead(scene, 0);
+      generateLanesBehind(scene, 0);
       console.log('VoxelScene: Lanes generated');
 
-      // Generate initial buildings
+      // Generate initial buildings both ahead and behind
       console.log('VoxelScene: Generating buildings');
       furthestBuildingZRef.current = 5;
+      earliestBuildingZRef.current = -5;
       generateBuildingsAhead(scene, 0);
+      generateBuildingsBehind(scene, 0);
       console.log('VoxelScene: Buildings generated');
 
       // Player using the detailed model
@@ -1138,18 +1167,20 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
       // Update camera to follow player
       if (!isGettingHitRef.current) {
-        // Normal camera follow
-        const targetCamZ = playerRef.current.position.z + 6;
-        const targetCamX = playerRef.current.position.x + 3;
-        const targetCamY = 5;
+        // Camera higher, further back, angled down to see more surroundings
+        const targetCamZ = playerRef.current.position.z + 7;
+        const targetCamX = playerRef.current.position.x; // Centered on player X position
+        const targetCamY = 8;
 
         cameraRef.current.position.x += (targetCamX - cameraRef.current.position.x) * 0.1;
         cameraRef.current.position.z += (targetCamZ - cameraRef.current.position.z) * 0.1;
         cameraRef.current.position.y += (targetCamY - cameraRef.current.position.y) * 0.1;
 
         const lookAtX = playerRef.current.position.x;
-        const lookAtZ = playerRef.current.position.z - 2;
-        cameraRef.current.lookAt(lookAtX, 0.5, lookAtZ);
+        const lookAtZ = playerRef.current.position.z - 15;
+        cameraRef.current.lookAt(lookAtX, 0, lookAtZ);
+        // Maintain right rotation (10 degrees)
+        cameraRef.current.rotation.y = 0.175;
       } else {
         // Death camera - orbit around the dead player
         const deathCamProgress = Math.min(hitAnimationTimeRef.current / 1.2, 1);
