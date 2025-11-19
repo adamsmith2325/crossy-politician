@@ -18,8 +18,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     supportsTablet: false,
     bundleIdentifier: "com.prismixlabs.crossypolitician",
     infoPlist: {
-      "ITSAppUsesNonExemptEncryption": false,
-      NSUserTrackingUsageDescription: "We use your device identifier to deliver more relevant ads and to support the app."
+      "ITSAppUsesNonExemptEncryption": false
     }
   },
   android: {
@@ -30,14 +29,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     }
   },
   plugins: [
-    [
-      "react-native-google-mobile-ads",
-      {
-          androidAppId: "ca-app-pub-5901242452853695~2399952491",
-          iosAppId: "ca-app-pub-5901242452853695~3024314584",
-      }
-    ],
-    "expo-tracking-transparency",
     "expo-asset",
     "expo-router"
   ],
