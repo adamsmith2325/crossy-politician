@@ -26,7 +26,6 @@ import {
   type EnvironmentConfig,
   type BuildingColors,
 } from './environment';
-import { analytics } from '../lib/analytics';
 
 interface CarObject {
   mesh: THREE.Group;
@@ -119,13 +118,6 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     initSounds();
     gameStartTimeRef.current = Date.now();
     console.log('VoxelScene: Sounds initialized');
-
-    // Track environment generation
-    analytics.trackEnvironmentGenerated({
-      season: environmentRef.current.season,
-      timeOfDay: environmentRef.current.timeOfDay,
-      weather: environmentRef.current.weather,
-    });
 
     // Cleanup on unmount
     return () => {

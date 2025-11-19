@@ -5,10 +5,7 @@ import VoxelScene from './VoxelScene';
 import Leaderboard from '../components/Leaderboard';
 import AchievementsModal from '../components/AchievementsModal';
 import { saveScore } from '../lib/leaderboard';
-import BannerAd from '../ads/BannerAd';
-import { interstitialAdManager } from '../ads/InterstitialAdManager';
 import { useAchievementsWithPersistence } from './achievementsManagerWithPersistence';
-import { analytics } from '../lib/analytics';
 
 type GameState = 'menu' | 'playing' | 'gameOver';
 
@@ -49,9 +46,6 @@ export default function Game() {
     setSavedScore(false);
     setGameKey(prev => prev + 1); // Force remount of VoxelScene
     setGameState('playing');
-
-    // Track game start
-    analytics.trackGameStart();
   };
 
   const handleGameOver = (finalScore: number, time: number, gameStats?: {
@@ -74,22 +68,6 @@ export default function Game() {
         ...gameStats,
       });
     }
-
-    // Track game over event with stats
-    if (gameStats) {
-      analytics.trackGameOver({
-        score: finalScore,
-        survivalTime: time,
-        dodges: gameStats.dodges,
-        jumps: gameStats.jumps,
-        busesDodged: gameStats.busesDodged,
-        policeDodged: gameStats.policeDodged,
-        closeCall: gameStats.closeCall,
-      });
-    }
-
-    // Show interstitial ad every 5 games
-    interstitialAdManager.onGameEnd();
   };
 
   const handleSaveScore = async () => {
@@ -101,17 +79,10 @@ export default function Game() {
     // Save username for future use and initialize profile
     await saveUsername(username.trim());
 
-    // Identify user in analytics
-    await analytics.identifyUser(username.trim());
-    await analytics.trackUsernameSet(username.trim());
-
     const success = await saveScore(username.trim(), score);
     if (success) {
       setSavedScore(true);
       setViewingLeaderboard(true);
-
-      // Track score submission
-      await analytics.trackScoreSubmitted(score, username.trim());
     } else {
       alert('Failed to save score. Please try again.');
     }
@@ -124,9 +95,6 @@ export default function Game() {
     setSavedScore(false);
     setUsername('');
     resetSessionAchievements();
-
-    // Track menu navigation
-    analytics.trackMenuNavigation('main_menu');
   };
 
   if (gameState === 'playing') {
@@ -136,9 +104,6 @@ export default function Game() {
         <VoxelScene key={gameKey} score={score} setScore={setScore} onGameOver={handleGameOver} />
         <View style={styles.scoreOverlay}>
           <Text style={styles.scoreText}>Score: {score}</Text>
-        </View>
-        <View style={styles.bannerContainer}>
-          <BannerAd />
         </View>
       </View>
     );
@@ -276,7 +241,6 @@ export default function Game() {
               style={styles.achievementsButtonAlt}
               onPress={() => {
                 setViewingAchievements(true);
-                analytics.trackAchievementsViewed(achievements.length, achievements.filter(a => a.unlocked).length);
               }}
             >
               <Text style={styles.achievementsButtonAltText}>
@@ -311,8 +275,6 @@ export default function Game() {
         </TouchableOpacity>
         <TouchableOpacity style={styles.secondaryButton} onPress={() => {
           setViewingLeaderboard(true);
-          analytics.trackMenuNavigation('leaderboard');
-          analytics.trackLeaderboardViewed();
         }}>
           <Text style={styles.secondaryButtonText}>Leaderboard</Text>
         </TouchableOpacity>
@@ -320,8 +282,6 @@ export default function Game() {
           style={styles.achievementsButton}
           onPress={() => {
             setViewingAchievements(true);
-            analytics.trackMenuNavigation('achievements');
-            analytics.trackAchievementsViewed(achievements.length, achievements.filter(a => a.unlocked).length);
           }}
         >
           <Text style={styles.achievementsButtonText}>Achievements</Text>
