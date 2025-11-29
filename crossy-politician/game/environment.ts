@@ -64,33 +64,33 @@ export function getLightingConfig(env: EnvironmentConfig): LightingConfig {
     morning: {
       skyColor: 0xffd89b,
       groundColor: 0x8b6f47,
-      hemisphereIntensity: 1.0,
+      hemisphereIntensity: 1.2, // Brighter morning glow
       directionalColor: 0xffeaa7,
-      directionalIntensity: 0.8,
+      directionalIntensity: 1.0, // Enhanced directional light
       ambientColor: 0xffd89b,
-      ambientIntensity: 0.5,
+      ambientIntensity: 0.6, // Warmer ambient fill
       fogColor: 0xffd89b,
       fogDensity: 0.002,
     },
     day: {
       skyColor: 0x87ceeb,
       groundColor: 0x7cb342,
-      hemisphereIntensity: 1.2,
-      directionalColor: 0xffffff,
-      directionalIntensity: 1.0,
+      hemisphereIntensity: 1.4, // Increased for brighter, more vibrant scene
+      directionalColor: 0xfff5e6, // Slightly warmer white for golden tint
+      directionalIntensity: 1.2, // Stronger shadows and depth
       ambientColor: 0xb3d9ff,
-      ambientIntensity: 0.6,
+      ambientIntensity: 0.7, // Boosted ambient for less harsh shadows
       fogColor: 0xcce5ff,
       fogDensity: 0.001,
     },
     evening: {
       skyColor: 0xff7e5f,
       groundColor: 0x5f4842,
-      hemisphereIntensity: 0.8,
+      hemisphereIntensity: 1.0, // Warmer evening light
       directionalColor: 0xff9966,
-      directionalIntensity: 0.6,
+      directionalIntensity: 0.8, // Enhanced golden hour lighting
       ambientColor: 0xff9966,
-      ambientIntensity: 0.5,
+      ambientIntensity: 0.6, // Richer ambient glow
       fogColor: 0xffa07a,
       fogDensity: 0.003,
     },

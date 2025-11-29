@@ -310,8 +310,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       return;
     }
 
-    // Make lanes wider for infinite horizontal scrolling - 40 units wide
-    const tile = buildCityTile(40, lane.type);
+    // Tighter lanes for Crossy Road-style density - 24 units wide (reduced from 40)
+    const tile = buildCityTile(24, lane.type);
     tile.position.set(0, 0, -lane.idx);
     scene.add(tile);
     laneObjectsRef.current.set(lane.idx, tile);
@@ -373,9 +373,9 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
     // Add obstacles and parked cars for grass lanes (not the first lane)
     if (lane.type === 'grass' && lane.idx > 0) {
-      // 70% chance to have obstacles on a grass lane (increased from 40%)
-      if (Math.random() < 0.7) {
-        const numObstacles = Math.floor(Math.random() * 4) + 2; // 2-5 obstacles per lane (increased from 1-2)
+      // 85% chance to have obstacles on a grass lane for Crossy Road-style density
+      if (Math.random() < 0.85) {
+        const numObstacles = Math.floor(Math.random() * 4) + 3; // 3-6 obstacles per lane
 
         for (let i = 0; i < numObstacles; i++) {
           const col = Math.floor(Math.random() * COLS);
@@ -399,9 +399,9 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         }
       }
 
-      // Add parked cars along the edges of sidewalks (35% chance)
-      if (Math.random() < 0.35) {
-        const numParkedCars = Math.floor(Math.random() * 2) + 1; // 1-2 parked cars
+      // Add parked cars along the edges of sidewalks (50% chance for denser streets)
+      if (Math.random() < 0.5) {
+        const numParkedCars = Math.floor(Math.random() * 3) + 1; // 1-3 parked cars
 
         for (let i = 0; i < numParkedCars; i++) {
           // Randomly select vehicle type (prefer regular cars for parked cars)
@@ -445,13 +445,13 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     const timeOfDay = environmentRef.current.timeOfDay;
     const fogColor = getLightingConfig(environmentRef.current).fogColor;
 
-    // Create multiple layers of buildings for depth - positioned just outside playable area
-    // With 40-unit wide lanes (±20), place buildings at ±25 and ±35
-    // Layer 1 (Foreground): Close to street at x = ±25
-    // Layer 2 (Background): Further back at x = ±35
+    // Create multiple layers of buildings for depth - positioned as distant backdrop
+    // With 24-unit wide lanes (±12), push buildings further back for Crossy Road-style separation
+    // Layer 1 (Foreground): Mid-distance at x = ±35
+    // Layer 2 (Background): Far distance at x = ±55
     const buildingLayers = [
-      { distance: 25, heightRange: [8, 18], widthRange: [2, 4], depthRange: [2, 4], opacity: 1.0, colorShift: 0 },
-      { distance: 35, heightRange: [12, 25], widthRange: [3, 6], depthRange: [3, 7], opacity: 0.8, colorShift: 0.15 },
+      { distance: 35, heightRange: [7, 15], widthRange: [2, 4], depthRange: [2, 4], opacity: 0.85, colorShift: 0.2 },
+      { distance: 55, heightRange: [10, 22], widthRange: [3, 6], depthRange: [3, 7], opacity: 0.6, colorShift: 0.35 },
     ];
 
     // Create buildings for each layer
@@ -994,8 +994,9 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       const renderHeight = gl.drawingBufferHeight;
       renderer.setSize(renderWidth, renderHeight);
       renderer.setClearColor(lighting.skyColor, 1);
-      // Disable shadows for better performance
-      renderer.shadowMap.enabled = false;
+      // Enable shadows for Crossy Road-style depth (optimized for performance)
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.BasicShadowMap; // Fastest shadow type
       rendererRef.current = renderer;
       console.log('VoxelScene: Renderer created successfully');
 
@@ -1007,14 +1008,15 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
       console.log('VoxelScene: Creating camera');
       const camera = new THREE.PerspectiveCamera(
-        65, // Slightly wider FOV to fill screen edge-to-edge
+        50, // Tighter FOV for Crossy Road-style intimate view (reduced from 65)
         renderWidth / renderHeight,
         0.1,
         1000
       );
-      // Position camera higher, further back, angled down to see more surroundings
-      camera.position.set(0, 8, 7);
-      camera.lookAt(0, 0, -15);
+      // Crossy Road-style camera: closer, tighter, ~55-degree angle
+      // Position player in lower third of screen for better forward visibility
+      camera.position.set(0, 6.5, 5.5);
+      camera.lookAt(0, 0, -10);
       // Rotate camera 10 degrees to the right (around Y axis)
       camera.rotation.y = 0.175; // 10 degrees in radians (10 * Math.PI / 180)
       cameraRef.current = camera;
@@ -1033,9 +1035,18 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         lighting.directionalColor,
         lighting.directionalIntensity
       );
-      directionalLight.position.set(5, 10, 5);
-      // Shadows disabled for performance
-      directionalLight.castShadow = false;
+      // Crossy Road-style lighting: angled from front-right-top for readable shadows
+      directionalLight.position.set(8, 12, 8);
+      // Enable simple shadows for depth (optimized settings)
+      directionalLight.castShadow = true;
+      directionalLight.shadow.mapSize.width = 1024; // Lower res for performance
+      directionalLight.shadow.mapSize.height = 1024;
+      directionalLight.shadow.camera.near = 0.5;
+      directionalLight.shadow.camera.far = 50;
+      directionalLight.shadow.camera.left = -15;
+      directionalLight.shadow.camera.right = 15;
+      directionalLight.shadow.camera.top = 15;
+      directionalLight.shadow.camera.bottom = -15;
       scene.add(directionalLight);
 
       const ambientLight = new THREE.AmbientLight(
@@ -1159,17 +1170,17 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
 
       // Update camera to follow player
       if (!isGettingHitRef.current) {
-        // Camera higher, further back, angled down to see more surroundings
-        const targetCamZ = playerRef.current.position.z + 7;
+        // Crossy Road-style follow cam: tight, intimate, player in lower third
+        const targetCamZ = playerRef.current.position.z + 5.5;
         const targetCamX = playerRef.current.position.x; // Centered on player X position
-        const targetCamY = 8;
+        const targetCamY = 6.5;
 
         cameraRef.current.position.x += (targetCamX - cameraRef.current.position.x) * 0.1;
         cameraRef.current.position.z += (targetCamZ - cameraRef.current.position.z) * 0.1;
         cameraRef.current.position.y += (targetCamY - cameraRef.current.position.y) * 0.1;
 
         const lookAtX = playerRef.current.position.x;
-        const lookAtZ = playerRef.current.position.z - 15;
+        const lookAtZ = playerRef.current.position.z - 10;
         cameraRef.current.lookAt(lookAtX, 0, lookAtZ);
         // Maintain right rotation (10 degrees)
         cameraRef.current.rotation.y = 0.175;
