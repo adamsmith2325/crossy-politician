@@ -1,6 +1,5 @@
-// src/game/VoxelScene.tsx
 import React, { useEffect, useRef } from 'react';
-import { PanResponder, View, Text, StyleSheet, Alert } from 'react-native';
+import { PanResponder, View } from 'react-native';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
@@ -18,15 +17,31 @@ import { initSounds, play } from '../sound/soundManager';
 import {
   generateRandomEnvironment,
   getLightingConfig,
-  getBuildingColors,
-  getSeasonalDecoration,
   createWeatherParticles,
   updateWeatherParticles,
-  getEnvironmentDescription,
   type EnvironmentConfig,
-  type BuildingColors,
 } from './environment';
 
+// ── Isometric Camera Constants ──────────────────────────────────────
+const VIEW_SIZE = 16;
+const DEG = Math.PI / 180;
+const CAM_ELEVATION = 55 * DEG;
+const CAM_YAW = 15 * DEG;
+const CAM_DISTANCE = 50;
+const CAM_LOOK_AHEAD = 3;
+const LANE_WIDTH = 26;
+
+const CAM_OFF_X = CAM_DISTANCE * Math.cos(CAM_ELEVATION) * Math.sin(CAM_YAW);
+const CAM_OFF_Y = CAM_DISTANCE * Math.sin(CAM_ELEVATION);
+const CAM_OFF_Z = CAM_DISTANCE * Math.cos(CAM_ELEVATION) * Math.cos(CAM_YAW);
+
+// ── Crossy Road lane colours ────────────────────────────────────────
+const GRASS_A = 0x7dd956;
+const GRASS_B = 0x68c73d;
+const ROAD_A = 0x3c424a;
+const ROAD_B = 0x353b43;
+
+// ── Interfaces ──────────────────────────────────────────────────────
 interface CarObject {
   mesh: THREE.Group;
   laneIdx: number;
@@ -34,11 +49,6 @@ interface CarObject {
   speed: number;
   direction: number;
   type?: 'car' | 'truck' | 'bus' | 'police' | 'taxi' | 'ambulance';
-}
-
-interface BuildingObject {
-  mesh: THREE.Object3D;
-  zPosition: number;
 }
 
 interface ObstacleObject {
@@ -49,24 +59,25 @@ interface ObstacleObject {
 
 interface VoxelSceneProps {
   score: number;
-  setScore: (setter: (prevScore: number) => number) => void;
+  setScore: (setter: (prev: number) => number) => void;
   onGameOver: (finalScore: number, survivalTime: number, gameStats?: {
-    dodges: number;
-    jumps: number;
-    busesDodged: number;
-    policeDodged: number;
-    closeCall: boolean;
+    dodges: number; jumps: number; busesDodged: number;
+    policeDodged: number; closeCall: boolean;
   }) => void;
 }
 
+// ═════════════════════════════════════════════════════════════════════
 export default function VoxelScene({ score, setScore, onGameOver }: VoxelSceneProps) {
+
+  // ── Core refs ─────────────────────────────────────────────────────
   const glRef = useRef<any>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const playerRef = useRef<THREE.Group | null>(null);
+  const dirLightRef = useRef<THREE.DirectionalLight | null>(null);
 
-  // Game state
+  // ── Game-state refs ───────────────────────────────────────────────
   const lanesRef = useRef<Lane[]>([]);
   const carsRef = useRef<CarObject[]>([]);
   const obstaclesRef = useRef<ObstacleObject[]>([]);
@@ -76,724 +87,203 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   const isMovingRef = useRef(false);
   const targetPosRef = useRef({ x: 0, z: 0 });
   const laneObjectsRef = useRef<Map<number, THREE.Group>>(new Map());
-  const buildingsRef = useRef<BuildingObject[]>([]);
-  const animationFrameRef = useRef<number | null>(null);
+  const animFrameRef = useRef<number | null>(null);
 
-  // Jump animation state
+  // ── Animation refs ────────────────────────────────────────────────
   const jumpProgressRef = useRef(0);
-  const jumpDirectionRef = useRef({ x: 0, z: 0 });
+  const jumpDirRef = useRef({ x: 0, z: 0 });
+  const isHitRef = useRef(false);
+  const hitTimeRef = useRef(0);
+  const hitDirRef = useRef({ x: 0, z: 0 });
+  const smoothLookRef = useRef({ x: 0, z: 0 });
 
-  // Hit animation state
-  const isGettingHitRef = useRef(false);
-  const hitAnimationTimeRef = useRef(0);
-  const hitDirectionRef = useRef({ x: 0, z: 0 });
-
-  // Track furthest and earliest lanes generated
+  // ── Generation tracking ───────────────────────────────────────────
   const furthestLaneRef = useRef(-1);
-  const earliestLaneRef = useRef(1); // Start at 1 so lane 0 can be generated
-  const furthestBuildingZRef = useRef(0);
-  const earliestBuildingZRef = useRef(0);
+  const earliestLaneRef = useRef(1);
 
-  // Environment state
-  const environmentRef = useRef<EnvironmentConfig>(generateRandomEnvironment());
-  const buildingColorsRef = useRef<BuildingColors>(getBuildingColors(environmentRef.current));
-  const weatherParticlesRef = useRef<THREE.Points | null>(null);
+  // ── Environment ───────────────────────────────────────────────────
+  const envRef = useRef<EnvironmentConfig>(generateRandomEnvironment());
+  const weatherRef = useRef<THREE.Points | null>(null);
 
-  // Time tracking
-  const gameStartTimeRef = useRef<number>(Date.now());
-  const survivalTimeRef = useRef<number>(0);
-
-  // Game statistics for achievements
-  const gameStatsRef = useRef({
-    dodges: 0,
-    jumps: 0,
-    busesDodged: 0,
-    policeDodged: 0,
-    closeCall: false,
+  // ── Timing & stats ────────────────────────────────────────────────
+  const startTimeRef = useRef(Date.now());
+  const survivalRef = useRef(0);
+  const statsRef = useRef({
+    dodges: 0, jumps: 0, busesDodged: 0, policeDodged: 0, closeCall: false,
   });
 
-  // Initialize sounds and reset game state on mount
+  // ── Lifecycle ─────────────────────────────────────────────────────
   useEffect(() => {
-    console.log('VoxelScene: Component mounted');
     initSounds();
-    gameStartTimeRef.current = Date.now();
-    console.log('VoxelScene: Sounds initialized');
-
-    // Cleanup on unmount
+    startTimeRef.current = Date.now();
     return () => {
-      console.log('VoxelScene: Component unmounting');
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+      if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
       gameOverRef.current = false;
       isMovingRef.current = false;
-      isGettingHitRef.current = false;
-      hitAnimationTimeRef.current = 0;
+      isHitRef.current = false;
       playerRowRef.current = 0;
       playerColRef.current = Math.floor(COLS / 2);
       lanesRef.current = [];
       carsRef.current = [];
       obstaclesRef.current = [];
       laneObjectsRef.current.clear();
-      buildingsRef.current = [];
-      furthestLaneRef.current = -1;
-      furthestBuildingZRef.current = 0;
-      gameStartTimeRef.current = Date.now();
-      survivalTimeRef.current = 0;
-      gameStatsRef.current = {
-        dodges: 0,
-        jumps: 0,
-        busesDodged: 0,
-        policeDodged: 0,
-        closeCall: false,
-      };
     };
   }, []);
 
-  // Swipe detection with increased sensitivity
+  // ── Swipe Controls ────────────────────────────────────────────────
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: () => true,
       onPanResponderRelease: (_, g) => {
-        if (gameOverRef.current || isMovingRef.current || isGettingHitRef.current) return;
-
-        const dx = g.dx, dy = g.dy;
-        const threshold = 15; // Reduced from 30 for faster response
-
-        if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
-          if (Math.abs(dx) > Math.abs(dy)) {
-            if (dx > 0) hop('right');
-            else hop('left');
-          } else {
-            if (dy > 0) hop('down');
-            else hop('up');
-          }
+        if (gameOverRef.current || isMovingRef.current || isHitRef.current) return;
+        const { dx, dy } = g;
+        const t = 15;
+        if (Math.abs(dx) > t || Math.abs(dy) > t) {
+          if (Math.abs(dx) > Math.abs(dy)) hop(dx > 0 ? 'right' : 'left');
+          else hop(dy > 0 ? 'down' : 'up');
         }
       },
     })
   ).current;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // LANE CREATION
+  // ═══════════════════════════════════════════════════════════════════
   const createLane = (idx: number, currentScore: number): Lane => {
-    // First lane is always safe
-    if (idx === 0) {
-      return { idx, type: 'grass', dir: 0, speed: 0, cars: [] };
-    }
+    if (idx === 0) return { idx, type: 'grass', dir: 0, speed: 0, cars: [] };
 
-    // Progressive difficulty scaling based on score (increased for more challenge)
-    const difficultyMultiplier = Math.min(1 + (currentScore / 40), 3.5); // Max 3.5x difficulty at score 100+ (faster ramp-up)
+    const diff = Math.min(1 + currentScore / 40, 3.5);
+    const roadProb = Math.min(0.65 + currentScore / 200, 0.75);
+    const type: LaneType = Math.random() < roadProb ? 'road' : 'grass';
+    const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
+    const speed = type === 'road' ? (0.4 + Math.random() * 0.5) * diff : 0;
 
-    // City-themed: alternate between sidewalks and roads
-    // Increase road probability slightly as score increases (max 75% roads)
-    const roadProbability = Math.min(0.65 + (currentScore / 200), 0.75);
-    const isRoad = Math.random() < roadProbability;
-    const type: LaneType = isRoad ? 'road' : 'grass';
-    const dir = Math.random() < 0.5 ? 1 : -1;
-
-    // Progressive speed increase: base speed increases with score (increased base speed for difficulty)
-    const baseSpeed = 0.4 + Math.random() * 0.5; // Increased from 0.25-0.65 to 0.4-0.9
-    const speed = isRoad ? baseSpeed * difficultyMultiplier : 0;
-
-    // Generate cars for road lanes
     const cars: number[] = [];
-    if (isRoad) {
-      // Increase number of cars based on score (1-4 cars for more difficulty)
-      const maxCars = Math.min(Math.floor(1 + currentScore / 25), 4); // Increased from 3 to 4, faster ramp-up
-      const numCars = Math.floor(Math.random() * maxCars) + 1;
-      const attempts = numCars * 3; // Try multiple times to place cars
-
-      for (let i = 0; i < attempts && cars.length < numCars; i++) {
+    if (type === 'road') {
+      const max = Math.min(Math.floor(1 + currentScore / 25), 4);
+      const num = Math.floor(Math.random() * max) + 1;
+      for (let i = 0; i < num * 3 && cars.length < num; i++) {
         const pos = Math.random() * COLS;
-        // Check minimum gap from other cars (gap decreases more aggressively with difficulty)
-        const minGap = Math.max(MIN_CAR_GAP - (currentScore / 80), 1.3); // Reduced min gap from 1.5 to 1.3
-        const tooClose = cars.some(c => Math.abs(c - pos) < minGap);
-        if (!tooClose) {
-          cars.push(pos);
-        }
+        const gap = Math.max(MIN_CAR_GAP - currentScore / 80, 1.3);
+        if (!cars.some(c => Math.abs(c - pos) < gap)) cars.push(pos);
       }
     }
-
     return { idx, type, dir, speed, cars };
   };
 
-  const buildCityTile = (width: number, type: LaneType): THREE.Group => {
+  // ═══════════════════════════════════════════════════════════════════
+  // TILE BUILDING – Crossy Road style chunky coloured strips
+  // ═══════════════════════════════════════════════════════════════════
+  const buildTile = (type: LaneType, laneIdx: number): THREE.Group => {
     const g = new THREE.Group();
+    const even = Math.abs(laneIdx) % 2 === 0;
 
     if (type === 'grass') {
-      // Sidewalk - light gray with texture
       const base = new THREE.Mesh(
-        new THREE.BoxGeometry(width, 0.02, 1),
-        new THREE.MeshStandardMaterial({ color: 0xc0c5cc })
+        new THREE.BoxGeometry(LANE_WIDTH, 0.5, 1.02),
+        new THREE.MeshStandardMaterial({ color: even ? GRASS_A : GRASS_B })
       );
+      base.position.y = -0.25;
       base.receiveShadow = true;
       g.add(base);
-
-      // Add curbs on both edges (raised edge)
-      const curbHeight = 0.08;
-      const curbLeft = new THREE.Mesh(
-        new THREE.BoxGeometry(0.15, curbHeight, 1),
-        new THREE.MeshStandardMaterial({ color: 0x909599 })
-      );
-      curbLeft.position.set(-width / 2 + 0.075, curbHeight / 2, 0);
-      g.add(curbLeft);
-
-      const curbRight = new THREE.Mesh(
-        new THREE.BoxGeometry(0.15, curbHeight, 1),
-        new THREE.MeshStandardMaterial({ color: 0x909599 })
-      );
-      curbRight.position.set(width / 2 - 0.075, curbHeight / 2, 0);
-      g.add(curbRight);
-
-      // OPTIMIZED: Removed edge details for better performance
-
-      // OPTIMIZED: Reduced manhole frequency and complexity
-      if (Math.random() < 0.08) {
-        const manhole = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.25, 0.25, 0.02, 8), // OPTIMIZED: 8 segments instead of 16
-          new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.5, roughness: 0.7 })
-        );
-        manhole.rotation.x = Math.PI / 2;
-        manhole.position.set((Math.random() - 0.5) * width * 0.6, 0.011, 0);
-        g.add(manhole);
-      }
-
     } else {
-      // Road - dark asphalt
       const base = new THREE.Mesh(
-        new THREE.BoxGeometry(width, 0.02, 1),
-        new THREE.MeshStandardMaterial({ color: 0x2c3238 })
+        new THREE.BoxGeometry(LANE_WIDTH, 0.5, 1.02),
+        new THREE.MeshStandardMaterial({ color: even ? ROAD_A : ROAD_B })
       );
+      base.position.y = -0.28;
       base.receiveShadow = true;
       g.add(base);
 
-      // Center dashed line (OPTIMIZED: 3 dashes instead of 4)
+      // Dashed centre line
       const dashMat = new THREE.MeshStandardMaterial({ color: 0xf4d756 });
-      for (let i = 0; i < 3; i++) {
-        const dash = new THREE.Mesh(
-          new THREE.BoxGeometry(0.15, 0.01, 0.4),
-          dashMat
-        );
-        dash.position.set(0, 0.011, -0.3 + i * 0.3);
-        g.add(dash);
-      }
-
-      // OPTIMIZED: Reduced crosswalk frequency
-      if (Math.random() < 0.06) {
-        const crosswalkMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
-        for (let i = 0; i < 5; i++) {
-          const stripe = new THREE.Mesh(
-            new THREE.BoxGeometry(width * 0.7, 0.01, 0.15),
-            crosswalkMat
-          );
-          stripe.position.set(0, 0.011, -0.4 + i * 0.2);
-          g.add(stripe);
-        }
-      }
-
-      // OPTIMIZED: Reduced manhole frequency and complexity
-      if (Math.random() < 0.04) {
-        const manhole = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.25, 0.25, 0.02, 8), // OPTIMIZED: 8 segments instead of 16
-          new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.5, roughness: 0.7 })
-        );
-        manhole.rotation.x = Math.PI / 2;
-        manhole.position.set((Math.random() - 0.5) * width * 0.4, 0.011, 0);
-        g.add(manhole);
+      for (let x = -10; x <= 10; x += 2.4) {
+        const d = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.01, 0.06), dashMat);
+        d.position.set(x, -0.02, 0);
+        g.add(d);
       }
     }
-
     return g;
   };
 
+  // ═══════════════════════════════════════════════════════════════════
+  // SCENE POPULATION
+  // ═══════════════════════════════════════════════════════════════════
   const addLaneToScene = (lane: Lane, scene: THREE.Scene) => {
-    // Don't add if already exists
-    if (laneObjectsRef.current.has(lane.idx)) {
-      return;
-    }
+    if (laneObjectsRef.current.has(lane.idx)) return;
 
-    // Tighter lanes for Crossy Road-style density - 24 units wide (reduced from 40)
-    const tile = buildCityTile(24, lane.type);
+    const tile = buildTile(lane.type, lane.idx);
     tile.position.set(0, 0, -lane.idx);
     scene.add(tile);
     laneObjectsRef.current.set(lane.idx, tile);
 
-    // Add cars for road lanes
+    // ── Vehicles on road lanes ──
     if (lane.type === 'road' && lane.cars.length > 0) {
       lane.cars.forEach(carPos => {
-        // Randomly select vehicle type with weighted probabilities
-        const rand = Math.random();
-        let carMesh: THREE.Group;
-        let vehicleType: 'car' | 'truck' | 'bus' | 'police' | 'taxi' | 'ambulance';
+        const r = Math.random();
+        let mesh: THREE.Group;
+        let vType: CarObject['type'];
+        if (r < 0.05)      { mesh = buildBus();       vType = 'bus'; }
+        else if (r < 0.15) { mesh = buildTruck();     vType = 'truck'; }
+        else if (r < 0.25) { mesh = buildAmbulance(); vType = 'ambulance'; }
+        else if (r < 0.35) { mesh = buildPoliceCar(); vType = 'police'; }
+        else if (r < 0.55) { mesh = buildTaxi();      vType = 'taxi'; }
+        else { mesh = buildCar(Math.random() < 0.5 ? 'red' : 'yellow'); vType = 'car'; }
 
-        if (rand < 0.05) {
-          // 5% chance for bus (largest)
-          carMesh = buildBus();
-          vehicleType = 'bus';
-        } else if (rand < 0.15) {
-          // 10% chance for truck
-          carMesh = buildTruck();
-          vehicleType = 'truck';
-        } else if (rand < 0.25) {
-          // 10% chance for ambulance
-          carMesh = buildAmbulance();
-          vehicleType = 'ambulance';
-        } else if (rand < 0.35) {
-          // 10% chance for police car
-          carMesh = buildPoliceCar();
-          vehicleType = 'police';
-        } else if (rand < 0.55) {
-          // 20% chance for taxi
-          carMesh = buildTaxi();
-          vehicleType = 'taxi';
-        } else {
-          // 45% chance for regular cars
-          carMesh = buildCar(Math.random() < 0.5 ? 'red' : 'yellow');
-          vehicleType = 'car';
-        }
-
-        const x = carPos - COLS / 2;
-        const z = -lane.idx;
-        carMesh.position.set(x, 0.2, z);
-
-        // Rotate based on direction
-        if (lane.dir === -1) {
-          carMesh.rotation.y = Math.PI;
-        }
-
-        scene.add(carMesh);
+        mesh.position.set(carPos - COLS / 2, 0.15, -lane.idx);
+        if (lane.dir === -1) mesh.rotation.y = Math.PI;
+        scene.add(mesh);
         carsRef.current.push({
-          mesh: carMesh,
-          laneIdx: lane.idx,
-          position: carPos,
-          speed: lane.speed,
-          direction: lane.dir,
-          type: vehicleType,
+          mesh, laneIdx: lane.idx, position: carPos,
+          speed: lane.speed, direction: lane.dir, type: vType,
         });
       });
     }
 
-    // Add obstacles and parked cars for grass lanes (not the first lane)
-    if (lane.type === 'grass' && lane.idx > 0) {
-      // 85% chance to have obstacles on a grass lane for Crossy Road-style density
-      if (Math.random() < 0.85) {
-        const numObstacles = Math.floor(Math.random() * 4) + 3; // 3-6 obstacles per lane
-
-        for (let i = 0; i < numObstacles; i++) {
-          const col = Math.floor(Math.random() * COLS);
-
-          // Don't place obstacle in center column if it's a low-index lane
-          if (lane.idx < 5 && col === Math.floor(COLS / 2)) {
-            continue;
-          }
-
-          const obstacleMesh = buildRandomObstacle();
-          const x = col - COLS / 2;
-          const z = -lane.idx;
-          obstacleMesh.position.set(x, 0, z);
-
-          scene.add(obstacleMesh);
-          obstaclesRef.current.push({
-            mesh: obstacleMesh,
-            laneIdx: lane.idx,
-            col: col
-          });
-        }
+    // ── Obstacles on grass lanes ──
+    if (lane.type === 'grass' && lane.idx > 0 && Math.random() < 0.85) {
+      const n = Math.floor(Math.random() * 4) + 3;
+      for (let i = 0; i < n; i++) {
+        const col = Math.floor(Math.random() * COLS);
+        if (lane.idx < 5 && col === Math.floor(COLS / 2)) continue;
+        const m = buildRandomObstacle();
+        m.position.set(col - COLS / 2, 0, -lane.idx);
+        scene.add(m);
+        obstaclesRef.current.push({ mesh: m, laneIdx: lane.idx, col });
       }
+    }
 
-      // Add parked cars along the edges of sidewalks (50% chance for denser streets)
-      if (Math.random() < 0.5) {
-        const numParkedCars = Math.floor(Math.random() * 3) + 1; // 1-3 parked cars
-
-        for (let i = 0; i < numParkedCars; i++) {
-          // Randomly select vehicle type (prefer regular cars for parked cars)
-          const rand = Math.random();
-          let carMesh: THREE.Group;
-
-          if (rand < 0.7) {
-            // 70% chance for regular cars
-            carMesh = buildCar(Math.random() < 0.5 ? 'red' : 'yellow');
-          } else if (rand < 0.85) {
-            // 15% chance for taxi
-            carMesh = buildTaxi();
-          } else {
-            // 15% chance for police car
-            carMesh = buildPoliceCar();
-          }
-
-          // Park on left or right edge
-          const parkOnLeft = Math.random() < 0.5;
-          const x = parkOnLeft ? -COLS / 2 + 0.8 : COLS / 2 - 0.8;
-          const z = -lane.idx;
-          carMesh.position.set(x, 0.1, z);
-
-          // Rotate to face along the street
-          carMesh.rotation.y = parkOnLeft ? Math.PI / 2 : -Math.PI / 2;
-
-          scene.add(carMesh);
-          obstaclesRef.current.push({
-            mesh: carMesh,
-            laneIdx: lane.idx,
-            col: parkOnLeft ? 0 : COLS - 1
-          });
-        }
+    // ── Parked cars on sidewalks ──
+    if (lane.type === 'grass' && lane.idx > 0 && Math.random() < 0.5) {
+      const n = Math.floor(Math.random() * 3) + 1;
+      for (let i = 0; i < n; i++) {
+        const r = Math.random();
+        let m: THREE.Group;
+        if (r < 0.7) m = buildCar(Math.random() < 0.5 ? 'red' : 'yellow');
+        else if (r < 0.85) m = buildTaxi();
+        else m = buildPoliceCar();
+        const left = Math.random() < 0.5;
+        m.position.set(left ? -COLS / 2 + 0.8 : COLS / 2 - 0.8, 0.1, -lane.idx);
+        m.rotation.y = left ? Math.PI / 2 : -Math.PI / 2;
+        scene.add(m);
+        obstaclesRef.current.push({ mesh: m, laneIdx: lane.idx, col: left ? 0 : COLS - 1 });
       }
     }
   };
 
-  const addBuilding = (scene: THREE.Scene, zPosition: number) => {
-    const colors = buildingColorsRef.current;
-    const season = environmentRef.current.season;
-    const timeOfDay = environmentRef.current.timeOfDay;
-    const fogColor = getLightingConfig(environmentRef.current).fogColor;
-
-    // Create multiple layers of buildings for depth - positioned as distant backdrop
-    // With 24-unit wide lanes (±12), push buildings further back for Crossy Road-style separation
-    // Layer 1 (Foreground): Mid-distance at x = ±35
-    // Layer 2 (Background): Far distance at x = ±55
-    const buildingLayers = [
-      { distance: 35, heightRange: [7, 15], widthRange: [2, 4], depthRange: [2, 4], opacity: 0.85, colorShift: 0.2 },
-      { distance: 55, heightRange: [10, 22], widthRange: [3, 6], depthRange: [3, 7], opacity: 0.6, colorShift: 0.35 },
-    ];
-
-    // Create buildings for each layer
-    buildingLayers.forEach((layer) => {
-      [-1, 1].forEach((side) => {
-        const group = new THREE.Group();
-
-        // Varied building dimensions based on layer
-        const height = layer.heightRange[0] + Math.random() * (layer.heightRange[1] - layer.heightRange[0]);
-        const width = layer.widthRange[0] + Math.random() * (layer.widthRange[1] - layer.widthRange[0]);
-        const depth = layer.depthRange[0] + Math.random() * (layer.depthRange[1] - layer.depthRange[0]);
-
-        // Choose random color from palette with atmospheric perspective
-        const primaryColor = colors.primary[Math.floor(Math.random() * colors.primary.length)];
-        const accentColor = colors.accent[Math.floor(Math.random() * colors.accent.length)];
-
-        // Apply atmospheric perspective (shift colors toward fog color for distant buildings)
-        const shiftedPrimaryColor = new THREE.Color(primaryColor).lerp(new THREE.Color(fogColor), layer.colorShift);
-        const shiftedAccentColor = new THREE.Color(accentColor).lerp(new THREE.Color(fogColor), layer.colorShift);
-
-        // Main building body
-        const mainBuilding = new THREE.Mesh(
-          new THREE.BoxGeometry(width, height, depth),
-          new THREE.MeshStandardMaterial({
-            color: shiftedPrimaryColor,
-            roughness: 0.7,
-            metalness: 0.1,
-            transparent: layer.opacity < 1,
-            opacity: layer.opacity
-          })
-        );
-        mainBuilding.position.y = height / 2;
-        mainBuilding.castShadow = layer.distance < 10; // Only close buildings cast shadows
-        mainBuilding.receiveShadow = true;
-        group.add(mainBuilding);
-
-        // Add architectural features randomly
-        const buildingStyle = Math.floor(Math.random() * 5); // More style variety
-
-        // Top accent/crown (modern style)
-        if (buildingStyle === 0) {
-          const crownHeight = height * 0.12;
-          const crown = new THREE.Mesh(
-            new THREE.BoxGeometry(width + 0.3, crownHeight, depth + 0.3),
-            new THREE.MeshStandardMaterial({
-              color: shiftedAccentColor,
-              roughness: 0.5,
-              metalness: 0.2,
-              transparent: layer.opacity < 1,
-              opacity: layer.opacity
-            })
-          );
-          crown.position.y = height + crownHeight / 2 - 0.1;
-          group.add(crown);
-        }
-
-        // Stepped/terraced design (classic)
-        else if (buildingStyle === 1 && height > 10) {
-          const stepHeight = height * 0.25;
-          const step = new THREE.Mesh(
-            new THREE.BoxGeometry(width * 0.75, stepHeight, depth * 0.75),
-            new THREE.MeshStandardMaterial({
-              color: shiftedAccentColor,
-              roughness: 0.7,
-              transparent: layer.opacity < 1,
-              opacity: layer.opacity
-            })
-          );
-          step.position.y = height + stepHeight / 2;
-          group.add(step);
-
-          // Add another smaller step
-          const step2 = new THREE.Mesh(
-            new THREE.BoxGeometry(width * 0.5, stepHeight * 0.5, depth * 0.5),
-            new THREE.MeshStandardMaterial({
-              color: shiftedPrimaryColor,
-              roughness: 0.7,
-              transparent: layer.opacity < 1,
-              opacity: layer.opacity
-            })
-          );
-          step2.position.y = height + stepHeight + stepHeight * 0.25;
-          group.add(step2);
-        }
-
-        // Glass tower style (modern)
-        else if (buildingStyle === 2) {
-          const glassColor = new THREE.Color(0x88ccff).lerp(new THREE.Color(fogColor), layer.colorShift);
-          const glassSection = new THREE.Mesh(
-            new THREE.BoxGeometry(width * 0.95, height * 0.3, depth * 0.95),
-            new THREE.MeshStandardMaterial({
-              color: glassColor,
-              roughness: 0.1,
-              metalness: 0.8,
-              transparent: true,
-              opacity: 0.6 * layer.opacity
-            })
-          );
-          glassSection.position.y = height - (height * 0.15);
-          group.add(glassSection);
-        }
-
-        // Antenna/spire (tall buildings)
-        else if (buildingStyle === 3 && height > 12) {
-          const spireColor = new THREE.Color(0x888888).lerp(new THREE.Color(fogColor), layer.colorShift);
-          const spire = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.08, 0.15, height * 0.25, 6),
-            new THREE.MeshStandardMaterial({
-              color: spireColor,
-              metalness: 0.8,
-              transparent: layer.opacity < 1,
-              opacity: layer.opacity
-            })
-          );
-          spire.position.y = height + (height * 0.125);
-          group.add(spire);
-        }
-
-        // Art deco style
-        else if (buildingStyle === 4 && height > 8) {
-          const levels = 3;
-          for (let i = 0; i < levels; i++) {
-            const levelHeight = height * 0.15;
-            const levelWidth = width * (0.9 - i * 0.15);
-            const levelDepth = depth * (0.9 - i * 0.15);
-            const level = new THREE.Mesh(
-              new THREE.BoxGeometry(levelWidth, levelHeight, levelDepth),
-              new THREE.MeshStandardMaterial({
-                color: i % 2 === 0 ? shiftedAccentColor : shiftedPrimaryColor,
-                roughness: 0.6,
-                transparent: layer.opacity < 1,
-                opacity: layer.opacity
-              })
-            );
-            level.position.y = height + (i * levelHeight) + levelHeight / 2;
-            group.add(level);
-          }
-        }
-
-        // Windows - only add to foreground buildings for performance (OPTIMIZED)
-        if (layer.distance <= 6) {
-          const floors = Math.min(Math.floor(height / 2.2), 5); // OPTIMIZED: Reduced floors
-          const windowsPerFloor = Math.min(Math.floor(width / 1.5), 3); // OPTIMIZED: Fewer windows
-          const windowLitProbability = timeOfDay === 'night' || timeOfDay === 'evening' ? 0.8 : 0.3;
-
-          for (let floor = 0; floor < floors; floor++) {
-            for (let w = 0; w < windowsPerFloor; w++) {
-              const isLit = Math.random() < windowLitProbability;
-              const windowColor = isLit ? colors.windowLit : colors.windowDark;
-              const emissiveColor = isLit ? colors.windowEmissive : 0x000000;
-
-              // Front face window
-              const window1 = new THREE.Mesh(
-                new THREE.BoxGeometry(0.35, 0.45, 0.08),
-                new THREE.MeshStandardMaterial({
-                  color: windowColor,
-                  emissive: emissiveColor,
-                  emissiveIntensity: isLit ? 0.4 : 0,
-                  roughness: 0.3,
-                  transparent: layer.opacity < 1,
-                  opacity: layer.opacity
-                })
-              );
-              const xOffset = -width / 2 + 0.5 + w * (width / (windowsPerFloor + 0.5));
-              const yOffset = 2 + floor * 1.8;
-              window1.position.set(xOffset, yOffset, depth / 2 + 0.05);
-              group.add(window1);
-            }
-          }
-
-          // Add storefront on ground floor (foreground buildings only)
-          if (layer.distance <= 6 && Math.random() < 0.6) {
-            const storefrontHeight = 2.5;
-            const storefront = new THREE.Mesh(
-              new THREE.BoxGeometry(width * 0.8, storefrontHeight, 0.1),
-              new THREE.MeshStandardMaterial({
-                color: 0x2a2a2a,
-                metalness: 0.6,
-                roughness: 0.2,
-                transparent: true,
-                opacity: 0.7
-              })
-            );
-            storefront.position.set(0, storefrontHeight / 2, depth / 2 + 0.06);
-            group.add(storefront);
-
-            // Storefront sign/awning
-            if (Math.random() < 0.7) {
-              const awning = new THREE.Mesh(
-                new THREE.BoxGeometry(width * 0.85, 0.15, 0.4),
-                new THREE.MeshStandardMaterial({
-                  color: [0xff6b6b, 0x4ecdc4, 0xffe66d, 0x95e1d3][Math.floor(Math.random() * 4)],
-                  roughness: 0.8
-                })
-              );
-              awning.position.set(0, storefrontHeight + 0.1, depth / 2 + 0.3);
-              group.add(awning);
-            }
-          }
-
-          // OPTIMIZED: Reduced fire escape frequency
-          if (layer.distance <= 6 && height > 10 && Math.random() < 0.2) {
-            const fireEscapeLevels = Math.min(Math.floor(height / 4), 3); // OPTIMIZED: Fewer levels
-            for (let i = 0; i < fireEscapeLevels; i++) {
-              const platform = new THREE.Mesh(
-                new THREE.BoxGeometry(0.8, 0.05, 0.6),
-                new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.5 })
-              );
-              platform.position.set(width / 2 + 0.3, 3 + i * 3, 0);
-              group.add(platform);
-            }
-          }
-        }
-
-        // Add seasonal decoration on roof (foreground only)
-        if (layer.distance <= 6) {
-          const decoration = getSeasonalDecoration(season);
-          if (decoration && Math.random() < 0.15) {
-            const decor = new THREE.Mesh(
-              new THREE.BoxGeometry(width, 0.1, depth),
-              new THREE.MeshStandardMaterial({
-                color: decoration.color,
-                roughness: 0.9,
-                transparent: layer.opacity < 1,
-                opacity: layer.opacity
-              })
-            );
-            decor.position.y = height;
-            group.add(decor);
-          }
-        }
-
-        // OPTIMIZED: Reduced rooftop details (foreground only, fewer items)
-        const rooftopDetailCount = layer.distance <= 6 ? Math.floor(Math.random() * 2) : 0;
-        for (let i = 0; i < rooftopDetailCount; i++) {
-          const detailType = Math.floor(Math.random() * 5);
-
-          // Water tower
-          if (detailType === 0) {
-            const waterTower = new THREE.Group();
-            const tank = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.3, 0.3, 0.8, 8),
-              new THREE.MeshStandardMaterial({ color: 0x666666, metalness: 0.4 })
-            );
-            tank.position.y = height + 0.8;
-            waterTower.add(tank);
-
-            const legs = new THREE.Mesh(
-              new THREE.BoxGeometry(0.4, 0.5, 0.4),
-              new THREE.MeshStandardMaterial({ color: 0x444444 })
-            );
-            legs.position.y = height + 0.25;
-            waterTower.add(legs);
-
-            waterTower.position.set(
-              (Math.random() - 0.5) * width * 0.6,
-              0,
-              (Math.random() - 0.5) * depth * 0.6
-            );
-            group.add(waterTower);
-          }
-          // AC unit
-          else if (detailType === 1) {
-            const acUnit = new THREE.Mesh(
-              new THREE.BoxGeometry(0.4, 0.3, 0.5),
-              new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.3 })
-            );
-            acUnit.position.set(
-              (Math.random() - 0.5) * width * 0.7,
-              height + 0.15,
-              (Math.random() - 0.5) * depth * 0.7
-            );
-            group.add(acUnit);
-          }
-          // Antenna
-          else if (detailType === 2) {
-            const antenna = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.03, 0.03, 2, 6),
-              new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7 })
-            );
-            antenna.position.set(
-              (Math.random() - 0.5) * width * 0.5,
-              height + 1,
-              (Math.random() - 0.5) * depth * 0.5
-            );
-            group.add(antenna);
-          }
-          // Chimney
-          else if (detailType === 3) {
-            const chimney = new THREE.Mesh(
-              new THREE.BoxGeometry(0.3, 1.2, 0.3),
-              new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.9 })
-            );
-            chimney.position.set(
-              (Math.random() - 0.5) * width * 0.6,
-              height + 0.6,
-              (Math.random() - 0.5) * depth * 0.6
-            );
-            group.add(chimney);
-          }
-          // Satellite dish
-          else {
-            const dish = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.25, 0.1, 0.1, 12),
-              new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8 })
-            );
-            dish.rotation.x = Math.PI / 3;
-            dish.position.set(
-              (Math.random() - 0.5) * width * 0.7,
-              height + 0.3,
-              (Math.random() - 0.5) * depth * 0.7
-            );
-            group.add(dish);
-          }
-        }
-
-        group.position.set(layer.distance * side, 0, zPosition);
-        scene.add(group);
-        buildingsRef.current.push({ mesh: group, zPosition });
-      });
-    });
-  };
-
-  const generateLanesAhead = (scene: THREE.Scene, playerRow: number) => {
-    const lookAhead = 40; // Reduced from 80 for better performance - camera angle will show more
-    const targetRow = playerRow + lookAhead;
-
-    // Generate lanes up to target
-    while (furthestLaneRef.current < targetRow) {
+  // ── Infinite-scroll generation ──
+  const genAhead = (scene: THREE.Scene, row: number) => {
+    const target = row + 30;
+    while (furthestLaneRef.current < target) {
       furthestLaneRef.current++;
       const lane = createLane(furthestLaneRef.current, score);
       lanesRef.current.push(lane);
       addLaneToScene(lane, scene);
     }
   };
-
-  const generateLanesBehind = (scene: THREE.Scene, playerRow: number) => {
-    const lookBehind = 10; // Reduced from 20 for better performance
-    const targetRow = playerRow - lookBehind;
-
-    // Generate lanes backward from earliest
-    while (earliestLaneRef.current > targetRow) {
+  const genBehind = (scene: THREE.Scene, row: number) => {
+    const target = row - 10;
+    while (earliestLaneRef.current > target) {
       earliestLaneRef.current--;
       const lane = createLane(earliestLaneRef.current, score);
       lanesRef.current.push(lane);
@@ -801,638 +291,399 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     }
   };
 
-  const generateBuildingsAhead = (scene: THREE.Scene, playerZ: number) => {
-    const lookAhead = 100; // Reduced from 200 for better performance
-    const targetZ = playerZ - lookAhead;
-    const buildingSpacing = 1.5; // Reduced spacing for denser cityscape (was 3.5)
-
-    // Generate buildings up to target
-    while (furthestBuildingZRef.current > targetZ) {
-      furthestBuildingZRef.current -= buildingSpacing;
-      addBuilding(scene, furthestBuildingZRef.current);
-    }
-  };
-
-  const generateBuildingsBehind = (scene: THREE.Scene, playerZ: number) => {
-    const lookBehind = 30; // Reduced from 50 for better performance
-    const targetZ = playerZ + lookBehind;
-    const buildingSpacing = 1.5;
-
-    // Generate buildings backward from earliest
-    while (earliestBuildingZRef.current < targetZ) {
-      earliestBuildingZRef.current += buildingSpacing;
-      addBuilding(scene, earliestBuildingZRef.current);
-    }
-  };
-
-  const cleanupOldObjects = (scene: THREE.Scene, playerRow: number, playerZ: number) => {
-    const cleanupDistanceLanes = 15; // Remove lanes 15 rows behind
-    const cleanupDistanceBuildings = 40; // Remove buildings 40 units behind
-
-    // Cleanup old lanes
-    lanesRef.current = lanesRef.current.filter(lane => {
-      if (lane.idx < playerRow - cleanupDistanceLanes) {
-        const laneObj = laneObjectsRef.current.get(lane.idx);
-        if (laneObj) {
-          scene.remove(laneObj);
-          laneObjectsRef.current.delete(lane.idx);
-        }
+  // ── Cleanup off-screen objects ──
+  const cleanup = (scene: THREE.Scene, row: number) => {
+    const d = 15;
+    lanesRef.current = lanesRef.current.filter(l => {
+      if (l.idx < row - d) {
+        const o = laneObjectsRef.current.get(l.idx);
+        if (o) { scene.remove(o); laneObjectsRef.current.delete(l.idx); }
         return false;
       }
       return true;
     });
-
-    // Cleanup old cars
-    carsRef.current = carsRef.current.filter(car => {
-      if (car.laneIdx < playerRow - cleanupDistanceLanes) {
-        scene.remove(car.mesh);
-        return false;
-      }
+    carsRef.current = carsRef.current.filter(c => {
+      if (c.laneIdx < row - d) { scene.remove(c.mesh); return false; }
       return true;
     });
-
-    // Cleanup old obstacles
-    obstaclesRef.current = obstaclesRef.current.filter(obstacle => {
-      if (obstacle.laneIdx < playerRow - cleanupDistanceLanes) {
-        scene.remove(obstacle.mesh);
-        return false;
-      }
-      return true;
-    });
-
-    // Cleanup old buildings
-    buildingsRef.current = buildingsRef.current.filter(building => {
-      if (building.zPosition > playerZ + cleanupDistanceBuildings) {
-        scene.remove(building.mesh);
-        return false;
-      }
+    obstaclesRef.current = obstaclesRef.current.filter(o => {
+      if (o.laneIdx < row - d) { scene.remove(o.mesh); return false; }
       return true;
     });
   };
 
+  // ═══════════════════════════════════════════════════════════════════
+  // COLLISION
+  // ═══════════════════════════════════════════════════════════════════
   const checkCollision = (): boolean => {
     if (!playerRef.current) return false;
+    const px = playerRef.current.position.x;
+    const pz = playerRef.current.position.z;
+    const R = 0.4;
 
-    const playerX = playerRef.current.position.x;
-    const playerZ = playerRef.current.position.z;
-    const collisionRadius = 0.4;
-
-    // Check collision with cars
     for (const car of carsRef.current) {
-      const carX = car.mesh.position.x;
-      const carZ = car.mesh.position.z;
-
-      const distance = Math.sqrt(
-        Math.pow(playerX - carX, 2) + Math.pow(playerZ - carZ, 2)
-      );
-
-      if (distance < collisionRadius) {
-        // Calculate hit direction
-        const dx = playerX - carX;
-        const dz = playerZ - carZ;
-        const magnitude = Math.sqrt(dx * dx + dz * dz);
-        if (magnitude > 0) {
-          hitDirectionRef.current = {
-            x: (dx / magnitude) * car.direction * 3,
-            z: (dz / magnitude) * 0.5
-          };
-        }
+      const dx = px - car.mesh.position.x;
+      const dz = pz - car.mesh.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < R) {
+        const m = dist || 1;
+        hitDirRef.current = { x: (dx / m) * car.direction * 3, z: (dz / m) * 0.5 };
         return true;
       }
     }
-
-    // Check collision with obstacles
-    for (const obstacle of obstaclesRef.current) {
-      const obstacleX = obstacle.mesh.position.x;
-      const obstacleZ = obstacle.mesh.position.z;
-
-      const distance = Math.sqrt(
-        Math.pow(playerX - obstacleX, 2) + Math.pow(playerZ - obstacleZ, 2)
-      );
-
-      if (distance < collisionRadius) {
-        // Calculate hit direction from obstacle
-        const dx = playerX - obstacleX;
-        const dz = playerZ - obstacleZ;
-        const magnitude = Math.sqrt(dx * dx + dz * dz);
-        if (magnitude > 0) {
-          hitDirectionRef.current = {
-            x: (dx / magnitude) * 1.5,
-            z: (dz / magnitude) * 0.5
-          };
-        }
+    for (const obs of obstaclesRef.current) {
+      const dx = px - obs.mesh.position.x;
+      const dz = pz - obs.mesh.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < R) {
+        const m = dist || 1;
+        hitDirRef.current = { x: (dx / m) * 1.5, z: (dz / m) * 0.5 };
         return true;
       }
     }
-
     return false;
   };
 
+  // ═══════════════════════════════════════════════════════════════════
+  // HOP
+  // ═══════════════════════════════════════════════════════════════════
   const hop = (dir: 'up' | 'down' | 'left' | 'right') => {
-    if (gameOverRef.current || isMovingRef.current || isGettingHitRef.current) return;
-
+    if (gameOverRef.current || isMovingRef.current || isHitRef.current) return;
     const oldX = playerColRef.current - COLS / 2;
     const oldZ = -playerRowRef.current;
 
     if (dir === 'up') {
       playerRowRef.current++;
       targetPosRef.current.z = -playerRowRef.current;
-      setScore((s) => s + 1);
-      gameStatsRef.current.jumps++;
+      setScore(s => s + 1);
+      statsRef.current.jumps++;
     } else if (dir === 'down') {
-      if (playerRowRef.current > 0) {
-        playerRowRef.current--;
-        targetPosRef.current.z = -playerRowRef.current;
-        gameStatsRef.current.jumps++;
-      }
+      if (playerRowRef.current <= 0) return;
+      playerRowRef.current--;
+      targetPosRef.current.z = -playerRowRef.current;
+      statsRef.current.jumps++;
     } else if (dir === 'left') {
-      // Infinite movement - no boundaries
       playerColRef.current--;
       targetPosRef.current.x = playerColRef.current - COLS / 2;
-      gameStatsRef.current.jumps++;
-    } else if (dir === 'right') {
-      // Infinite movement - no boundaries
+      statsRef.current.jumps++;
+    } else {
       playerColRef.current++;
       targetPosRef.current.x = playerColRef.current - COLS / 2;
-      gameStatsRef.current.jumps++;
+      statsRef.current.jumps++;
     }
 
-    // Calculate jump direction for animation
-    jumpDirectionRef.current = {
+    jumpDirRef.current = {
       x: targetPosRef.current.x - oldX,
-      z: targetPosRef.current.z - oldZ
+      z: targetPosRef.current.z - oldZ,
     };
     jumpProgressRef.current = 0;
-
     isMovingRef.current = true;
     play('move');
 
-    // Generate more lanes and buildings as needed (both ahead and behind)
     if (sceneRef.current) {
-      generateLanesAhead(sceneRef.current, playerRowRef.current);
-      generateLanesBehind(sceneRef.current, playerRowRef.current);
-      generateBuildingsAhead(sceneRef.current, -playerRowRef.current);
-      generateBuildingsBehind(sceneRef.current, -playerRowRef.current);
-      cleanupOldObjects(sceneRef.current, playerRowRef.current, -playerRowRef.current);
+      genAhead(sceneRef.current, playerRowRef.current);
+      genBehind(sceneRef.current, playerRowRef.current);
+      cleanup(sceneRef.current, playerRowRef.current);
     }
   };
 
+  // ═══════════════════════════════════════════════════════════════════
+  // GL CONTEXT CREATION
+  // ═══════════════════════════════════════════════════════════════════
   const onContextCreate = async (gl: any) => {
-    try {
-      console.log('VoxelScene: onContextCreate called');
-      glRef.current = gl;
+    glRef.current = gl;
+    const env = envRef.current;
+    const lighting = getLightingConfig(env);
+    const w = gl.drawingBufferWidth;
+    const h = gl.drawingBufferHeight;
+    const aspect = w / h;
 
-      // Get environment and lighting configuration
-      const env = environmentRef.current;
-      const lighting = getLightingConfig(env);
-      console.log('Environment:', getEnvironmentDescription(env));
+    // ── Renderer ──
+    const renderer = new Renderer({ gl });
+    renderer.setSize(w, h);
+    renderer.setClearColor(lighting.skyColor, 1);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.BasicShadowMap;
+    rendererRef.current = renderer;
 
-      console.log('VoxelScene: Creating renderer');
-      const renderer = new Renderer({ gl });
-      // Use full resolution for proper display
-      const renderWidth = gl.drawingBufferWidth;
-      const renderHeight = gl.drawingBufferHeight;
-      renderer.setSize(renderWidth, renderHeight);
-      renderer.setClearColor(lighting.skyColor, 1);
-      // Enable shadows for Crossy Road-style depth (optimized for performance)
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.BasicShadowMap; // Fastest shadow type
-      rendererRef.current = renderer;
-      console.log('VoxelScene: Renderer created successfully');
+    // ── Scene ──
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(lighting.fogColor, lighting.fogDensity * 0.6);
+    sceneRef.current = scene;
 
-      console.log('VoxelScene: Creating scene');
-      const scene = new THREE.Scene();
-      scene.fog = new THREE.FogExp2(lighting.fogColor, lighting.fogDensity);
-      sceneRef.current = scene;
-      console.log('VoxelScene: Scene created');
+    // ── Orthographic Camera (isometric) ──
+    const camera = new THREE.OrthographicCamera(
+      -VIEW_SIZE * aspect / 2, VIEW_SIZE * aspect / 2,
+      VIEW_SIZE / 2, -VIEW_SIZE / 2,
+      0.1, 200
+    );
+    cameraRef.current = camera;
 
-      console.log('VoxelScene: Creating camera');
-      const camera = new THREE.PerspectiveCamera(
-        50, // Tighter FOV for Crossy Road-style intimate view (reduced from 65)
-        renderWidth / renderHeight,
-        0.1,
-        1000
-      );
-      // Crossy Road-style camera: closer, tighter, ~55-degree angle
-      // Position player in lower third of screen for better forward visibility
-      camera.position.set(0, 6.5, 5.5);
-      camera.lookAt(0, 0, -10);
-      // Rotate camera 10 degrees to the right (around Y axis)
-      camera.rotation.y = 0.175; // 10 degrees in radians (10 * Math.PI / 180)
-      cameraRef.current = camera;
-      console.log('VoxelScene: Camera created');
+    // ── Lighting ──
+    const hemi = new THREE.HemisphereLight(
+      lighting.skyColor, lighting.groundColor, lighting.hemisphereIntensity
+    );
+    scene.add(hemi);
 
-      // Dynamic lighting based on environment
-      console.log('VoxelScene: Creating lights');
-      const hemisphereLight = new THREE.HemisphereLight(
-        lighting.skyColor,
-        lighting.groundColor,
-        lighting.hemisphereIntensity
-      );
-      scene.add(hemisphereLight);
+    const dirLight = new THREE.DirectionalLight(
+      lighting.directionalColor, lighting.directionalIntensity
+    );
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(1024, 1024);
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 80;
+    dirLight.shadow.camera.left = -20;
+    dirLight.shadow.camera.right = 20;
+    dirLight.shadow.camera.top = 20;
+    dirLight.shadow.camera.bottom = -20;
+    scene.add(dirLight);
+    scene.add(dirLight.target);
+    dirLightRef.current = dirLight;
 
-      const directionalLight = new THREE.DirectionalLight(
-        lighting.directionalColor,
-        lighting.directionalIntensity
-      );
-      // Crossy Road-style lighting: angled from front-right-top for readable shadows
-      directionalLight.position.set(8, 12, 8);
-      // Enable simple shadows for depth (optimized settings)
-      directionalLight.castShadow = true;
-      directionalLight.shadow.mapSize.width = 1024; // Lower res for performance
-      directionalLight.shadow.mapSize.height = 1024;
-      directionalLight.shadow.camera.near = 0.5;
-      directionalLight.shadow.camera.far = 50;
-      directionalLight.shadow.camera.left = -15;
-      directionalLight.shadow.camera.right = 15;
-      directionalLight.shadow.camera.top = 15;
-      directionalLight.shadow.camera.bottom = -15;
-      scene.add(directionalLight);
+    scene.add(new THREE.AmbientLight(lighting.ambientColor, lighting.ambientIntensity));
 
-      const ambientLight = new THREE.AmbientLight(
-        lighting.ambientColor,
-        lighting.ambientIntensity
-      );
-      scene.add(ambientLight);
-      console.log('VoxelScene: Lights created');
+    // ── World ──
+    genAhead(scene, 0);
+    genBehind(scene, 0);
 
-      // Generate initial lanes both ahead and behind
-      console.log('VoxelScene: Generating lanes');
-      generateLanesAhead(scene, 0);
-      generateLanesBehind(scene, 0);
-      console.log('VoxelScene: Lanes generated');
+    // ── Player ──
+    const player = buildPlayer();
+    const sx = playerColRef.current - COLS / 2;
+    const sz = -playerRowRef.current;
+    player.position.set(sx, 0.5, sz);
+    targetPosRef.current = { x: sx, z: sz };
+    scene.add(player);
+    playerRef.current = player;
 
-      // Generate initial buildings both ahead and behind
-      console.log('VoxelScene: Generating buildings');
-      furthestBuildingZRef.current = 5;
-      earliestBuildingZRef.current = -5;
-      generateBuildingsAhead(scene, 0);
-      generateBuildingsBehind(scene, 0);
-      console.log('VoxelScene: Buildings generated');
+    // ── Smooth-look init ──
+    smoothLookRef.current = { x: sx, z: sz - CAM_LOOK_AHEAD };
 
-      // Player using the detailed model
-      console.log('VoxelScene: Creating player');
-      const player = buildPlayer();
-      const startX = playerColRef.current - COLS / 2;
-      const startZ = -playerRowRef.current;
-      player.position.set(startX, 0.5, startZ);
-      targetPosRef.current = { x: startX, z: startZ };
-      scene.add(player);
-      playerRef.current = player;
-      console.log('VoxelScene: Player created');
+    // ── Camera init position ──
+    camera.position.set(
+      sx + CAM_OFF_X, CAM_OFF_Y, sz - CAM_LOOK_AHEAD + CAM_OFF_Z
+    );
+    camera.lookAt(sx, 0, sz - CAM_LOOK_AHEAD);
 
-      // Add weather particles
-      console.log('VoxelScene: Creating weather particles');
-      const weatherParticles = createWeatherParticles(
-        scene,
-        env.weather,
-        new THREE.Vector3(startX, 0, startZ)
-      );
-      weatherParticlesRef.current = weatherParticles;
-      console.log('VoxelScene: Weather particles created');
+    // ── Dir-light init ──
+    dirLight.position.set(sx + 8, 15, sz - CAM_LOOK_AHEAD + 8);
+    dirLight.target.position.set(sx, 0, sz - CAM_LOOK_AHEAD);
 
-      let lastTime = Date.now();
+    // ── Weather ──
+    weatherRef.current = createWeatherParticles(
+      scene, env.weather, new THREE.Vector3(sx, 0, sz)
+    );
 
-      const animate = () => {
-        try {
-          if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) {
-            console.warn('VoxelScene: Missing refs in animate loop');
-            return;
-          }
+    // ═════════════════════════════════════════════════════════════════
+    // ANIMATION LOOP
+    // ═════════════════════════════════════════════════════════════════
+    let lastTime = Date.now();
 
-          animationFrameRef.current = requestAnimationFrame(animate);
+    const animate = () => {
+      if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) return;
+      animFrameRef.current = requestAnimationFrame(animate);
 
-          const currentTime = Date.now();
-          const delta = Math.min((currentTime - lastTime) / 1000, 0.1); // Cap delta to prevent huge jumps
-          lastTime = currentTime;
+      const now = Date.now();
+      const delta = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
 
-      // Smooth player movement with Crossy Road style jump
+      const P = playerRef.current;
+
+      // ── Player hop animation ──
       if (isMovingRef.current) {
-        const moveSpeed = 8;
-        jumpProgressRef.current += delta * moveSpeed;
-        const progress = Math.min(jumpProgressRef.current, 1);
+        jumpProgressRef.current += delta * 8;
+        const p = Math.min(jumpProgressRef.current, 1);
 
-        // Horizontal movement
-        playerRef.current.position.x = THREE.MathUtils.lerp(
-          playerRef.current.position.x,
-          targetPosRef.current.x,
-          progress
-        );
-        playerRef.current.position.z = THREE.MathUtils.lerp(
-          playerRef.current.position.z,
-          targetPosRef.current.z,
-          progress
-        );
+        P.position.x = THREE.MathUtils.lerp(P.position.x, targetPosRef.current.x, p);
+        P.position.z = THREE.MathUtils.lerp(P.position.z, targetPosRef.current.z, p);
 
-        // Jump arc animation - parabolic curve
-        const jumpHeight = 0.6; // Peak of the jump
-        const arcProgress = Math.sin(progress * Math.PI); // Creates smooth arc
-        playerRef.current.position.y = 0.5 + arcProgress * jumpHeight;
+        const arc = Math.sin(p * Math.PI);
+        P.position.y = 0.5 + arc * 0.6;
 
-        // Slight forward tilt during jump
-        const tiltAmount = Math.sin(progress * Math.PI) * 0.15;
-        if (jumpDirectionRef.current.z !== 0) {
-          playerRef.current.rotation.x = tiltAmount * (jumpDirectionRef.current.z > 0 ? 1 : -1);
-        }
-        if (jumpDirectionRef.current.x !== 0) {
-          playerRef.current.rotation.z = -tiltAmount * (jumpDirectionRef.current.x > 0 ? 1 : -1);
-        }
+        const tilt = arc * 0.15;
+        if (jumpDirRef.current.z !== 0)
+          P.rotation.x = tilt * (jumpDirRef.current.z > 0 ? 1 : -1);
+        if (jumpDirRef.current.x !== 0)
+          P.rotation.z = -tilt * (jumpDirRef.current.x > 0 ? 1 : -1);
 
-        // Slight squash and stretch
-        const squashStretch = 1 + Math.sin(progress * Math.PI) * 0.1;
-        playerRef.current.scale.y = squashStretch;
-        playerRef.current.scale.x = 1 / Math.sqrt(squashStretch);
-        playerRef.current.scale.z = 1 / Math.sqrt(squashStretch);
+        const ss = 1 + arc * 0.1;
+        P.scale.set(1 / Math.sqrt(ss), ss, 1 / Math.sqrt(ss));
 
-        // Check if movement is complete
-        if (progress >= 1) {
+        if (p >= 1) {
           isMovingRef.current = false;
           jumpProgressRef.current = 0;
-
-          // Reset rotation and scale
-          playerRef.current.rotation.x = 0;
-          playerRef.current.rotation.z = 0;
-          playerRef.current.scale.set(1, 1, 1);
-          playerRef.current.position.y = 0.5;
-
-          // Snap to final position
-          playerRef.current.position.x = targetPosRef.current.x;
-          playerRef.current.position.z = targetPosRef.current.z;
-
-          // Check collision after movement
-          if (checkCollision() && !gameOverRef.current && !isGettingHitRef.current) {
-            isGettingHitRef.current = true;
-            hitAnimationTimeRef.current = 0;
+          P.rotation.set(0, 0, 0);
+          P.scale.set(1, 1, 1);
+          P.position.set(targetPosRef.current.x, 0.5, targetPosRef.current.z);
+          if (checkCollision() && !gameOverRef.current && !isHitRef.current) {
+            isHitRef.current = true;
+            hitTimeRef.current = 0;
             play('hit');
           }
         }
       }
 
-      // Update camera to follow player
-      if (!isGettingHitRef.current) {
-        // Crossy Road-style follow cam: tight, intimate, player in lower third
-        const targetCamZ = playerRef.current.position.z + 5.5;
-        const targetCamX = playerRef.current.position.x; // Centered on player X position
-        const targetCamY = 6.5;
+      // ── Camera follow (smooth isometric) ──
+      if (!isHitRef.current) {
+        const lx = P.position.x;
+        const lz = P.position.z - CAM_LOOK_AHEAD;
+        smoothLookRef.current.x += (lx - smoothLookRef.current.x) * 0.08;
+        smoothLookRef.current.z += (lz - smoothLookRef.current.z) * 0.08;
 
-        cameraRef.current.position.x += (targetCamX - cameraRef.current.position.x) * 0.1;
-        cameraRef.current.position.z += (targetCamZ - cameraRef.current.position.z) * 0.1;
-        cameraRef.current.position.y += (targetCamY - cameraRef.current.position.y) * 0.1;
-
-        const lookAtX = playerRef.current.position.x;
-        const lookAtZ = playerRef.current.position.z - 10;
-        cameraRef.current.lookAt(lookAtX, 0, lookAtZ);
-        // Maintain right rotation (10 degrees)
-        cameraRef.current.rotation.y = 0.175;
-      } else {
-        // Death camera - orbit around the dead player
-        const deathCamProgress = Math.min(hitAnimationTimeRef.current / 1.2, 1);
-
-        // Move camera to focus on player
-        const targetCamX = playerRef.current.position.x + 2 + Math.cos(deathCamProgress * Math.PI * 0.5) * 2;
-        const targetCamZ = playerRef.current.position.z + 3 + Math.sin(deathCamProgress * Math.PI * 0.5) * 2;
-        const targetCamY = 3 + deathCamProgress * 1;
-
-        cameraRef.current.position.x += (targetCamX - cameraRef.current.position.x) * 0.15;
-        cameraRef.current.position.z += (targetCamZ - cameraRef.current.position.z) * 0.15;
-        cameraRef.current.position.y += (targetCamY - cameraRef.current.position.y) * 0.15;
-
-        // Look directly at the player's body
-        cameraRef.current.lookAt(
-          playerRef.current.position.x,
-          playerRef.current.position.y,
-          playerRef.current.position.z
+        cameraRef.current.position.set(
+          smoothLookRef.current.x + CAM_OFF_X,
+          CAM_OFF_Y,
+          smoothLookRef.current.z + CAM_OFF_Z
         );
+        cameraRef.current.lookAt(smoothLookRef.current.x, 0, smoothLookRef.current.z);
+
+        if (dirLightRef.current) {
+          dirLightRef.current.position.set(
+            smoothLookRef.current.x + 8, 15, smoothLookRef.current.z + 8
+          );
+          dirLightRef.current.target.position.set(
+            smoothLookRef.current.x, 0, smoothLookRef.current.z
+          );
+        }
+      } else {
+        // ── Death camera: centre on player, no look-ahead ──
+        const lx = P.position.x;
+        const lz = P.position.z;
+        smoothLookRef.current.x += (lx - smoothLookRef.current.x) * 0.05;
+        smoothLookRef.current.z += (lz - smoothLookRef.current.z) * 0.05;
+
+        cameraRef.current.position.set(
+          smoothLookRef.current.x + CAM_OFF_X,
+          CAM_OFF_Y,
+          smoothLookRef.current.z + CAM_OFF_Z
+        );
+        cameraRef.current.lookAt(smoothLookRef.current.x, 0, smoothLookRef.current.z);
       }
 
-      // Update cars and check for near misses
+      // ── Move cars & track stats ──
       carsRef.current.forEach(car => {
         car.position += car.direction * car.speed * delta * 3;
         car.mesh.position.x = car.position - COLS / 2;
 
-        // Check for close calls (near misses)
         if (!gameOverRef.current && !isMovingRef.current) {
-          const playerX = playerRef.current.position.x;
-          const playerZ = playerRef.current.position.z;
-          const carX = car.mesh.position.x;
-          const carZ = car.mesh.position.z;
+          const dx = P.position.x - car.mesh.position.x;
+          const dz = P.position.z - car.mesh.position.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist < 0.7 && dist > 0.4) statsRef.current.closeCall = true;
 
-          const distance = Math.sqrt(
-            Math.pow(playerX - carX, 2) + Math.pow(playerZ - carZ, 2)
-          );
-
-          // Close call: distance less than 0.7 but greater than collision radius (0.4)
-          if (distance < 0.7 && distance > 0.4) {
-            gameStatsRef.current.closeCall = true;
-          }
-
-          // Track dodges (vehicle passed by the player)
-          const prevPosition = car.position - car.direction * car.speed * delta * 3;
-          const playerCol = playerColRef.current;
-          const playerXGrid = playerCol - COLS / 2;
-
-          // Check if vehicle just passed the player's position
+          const prev = car.position - car.direction * car.speed * delta * 3;
+          const pxg = playerColRef.current - COLS / 2;
           if (car.laneIdx === playerRowRef.current) {
-            if (
-              (car.direction > 0 && prevPosition < playerXGrid && car.position >= playerXGrid) ||
-              (car.direction < 0 && prevPosition > playerXGrid && car.position <= playerXGrid)
-            ) {
-              gameStatsRef.current.dodges++;
-              if (car.type === 'bus') gameStatsRef.current.busesDodged++;
-              if (car.type === 'police') gameStatsRef.current.policeDodged++;
+            if ((car.direction > 0 && prev < pxg && car.position >= pxg) ||
+                (car.direction < 0 && prev > pxg && car.position <= pxg)) {
+              statsRef.current.dodges++;
+              if (car.type === 'bus') statsRef.current.busesDodged++;
+              if (car.type === 'police') statsRef.current.policeDodged++;
             }
           }
         }
 
-        // Wrap around
-        if (car.position > COLS + 2) {
-          car.position = -2;
-        } else if (car.position < -2) {
-          car.position = COLS + 2;
-        }
+        // Wrap
+        if (car.position > COLS + 2) car.position = -2;
+        else if (car.position < -2) car.position = COLS + 2;
       });
 
-      // Update weather particles
-      if (weatherParticlesRef.current) {
-        updateWeatherParticles(
-          weatherParticlesRef.current,
-          environmentRef.current.weather,
-          delta,
-          playerRef.current.position.z
-        );
+      // ── Weather ──
+      if (weatherRef.current) {
+        updateWeatherParticles(weatherRef.current, envRef.current.weather, delta, P.position.z);
       }
 
-      // Check collision continuously when not moving
-      if (!gameOverRef.current && !isMovingRef.current && !isGettingHitRef.current) {
+      // ── Continuous collision check ──
+      if (!gameOverRef.current && !isMovingRef.current && !isHitRef.current) {
         if (checkCollision()) {
-          isGettingHitRef.current = true;
-          hitAnimationTimeRef.current = 0;
+          isHitRef.current = true;
+          hitTimeRef.current = 0;
           play('hit');
         }
       }
 
-      // Handle violent hit animation with boundary collision
-      if (isGettingHitRef.current) {
-        hitAnimationTimeRef.current += delta;
-        const animTime = hitAnimationTimeRef.current;
-        const animDuration = 1.2;
+      // ── Death / ragdoll animation ──
+      if (isHitRef.current) {
+        hitTimeRef.current += delta;
+        const t = hitTimeRef.current;
+        const dur = 1.2;
+        const bL = -3.5, bR = 3.5;
 
-        // Play area boundaries (based on building distance)
-        const boundaryLeft = -3.5;
-        const boundaryRight = 3.5;
+        if (t < dur) {
+          // Phase 1: Impact (0–0.3s)
+          if (t < 0.3) {
+            const ip = t / 0.3;
+            P.rotation.x = ip * Math.PI * 3;
+            P.rotation.y = ip * Math.PI * 2;
+            P.rotation.z = ip * Math.PI * 2.5;
+            P.position.y = 0.5 + Math.sin(ip * Math.PI) * 2.5;
 
-        if (animTime < animDuration) {
-          const progress = Math.min(animTime / animDuration, 1);
+            let nx = P.position.x + hitDirRef.current.x * delta * 8;
+            if (nx < bL) { nx = bL; hitDirRef.current.x *= -0.6; }
+            else if (nx > bR) { nx = bR; hitDirRef.current.x *= -0.6; }
+            P.position.x = nx;
+            P.position.z += hitDirRef.current.z * delta * 8;
 
-          // Phase 1: Initial impact (0-0.3s) - violent spin and launch
-          if (animTime < 0.3) {
-            const impactProgress = animTime / 0.3;
-
-            // Violent spinning in multiple axes
-            playerRef.current.rotation.x = impactProgress * Math.PI * 3;
-            playerRef.current.rotation.y = impactProgress * Math.PI * 2;
-            playerRef.current.rotation.z = impactProgress * Math.PI * 2.5;
-
-            // Launch upward violently
-            const launchHeight = Math.sin(impactProgress * Math.PI) * 2.5;
-            playerRef.current.position.y = 0.5 + launchHeight;
-
-            // Fly backwards from impact with boundary check
-            const newX = playerRef.current.position.x + hitDirectionRef.current.x * delta * 8;
-
-            // Check for building collision and bounce
-            if (newX < boundaryLeft) {
-              playerRef.current.position.x = boundaryLeft;
-              hitDirectionRef.current.x = -hitDirectionRef.current.x * 0.6; // Reverse and reduce
-            } else if (newX > boundaryRight) {
-              playerRef.current.position.x = boundaryRight;
-              hitDirectionRef.current.x = -hitDirectionRef.current.x * 0.6;
-            } else {
-              playerRef.current.position.x = newX;
-            }
-
-            playerRef.current.position.z += hitDirectionRef.current.z * delta * 8;
-
-            // Squash on impact
-            const squash = 1 - impactProgress * 0.4;
-            playerRef.current.scale.set(1.2, squash, 1.2);
+            const sq = 1 - ip * 0.4;
+            P.scale.set(1.2, sq, 1.2);
           }
-          // Phase 2: Airborne rotation (0.3-0.8s)
-          else if (animTime < 0.8) {
-            const airProgress = (animTime - 0.3) / 0.5;
+          // Phase 2: Airborne (0.3–0.8s)
+          else if (t < 0.8) {
+            const ap = (t - 0.3) / 0.5;
+            P.rotation.x = Math.PI * 3 + ap * Math.PI * 2;
+            P.rotation.y = Math.PI * 2 + ap * Math.PI;
+            P.rotation.z = Math.PI * 2.5 + ap * Math.PI * 1.5;
+            P.position.y = 0.5 + 2.5 * (1 - ap);
 
-            // Continue spinning
-            playerRef.current.rotation.x = Math.PI * 3 + airProgress * Math.PI * 2;
-            playerRef.current.rotation.y = Math.PI * 2 + airProgress * Math.PI;
-            playerRef.current.rotation.z = Math.PI * 2.5 + airProgress * Math.PI * 1.5;
-
-            // Arc trajectory
-            const arc = 2.5 * (1 - airProgress);
-            playerRef.current.position.y = 0.5 + arc;
-
-            // Continue flying with boundary check
-            const newX = playerRef.current.position.x + hitDirectionRef.current.x * delta * (4 - airProgress * 3);
-
-            if (newX < boundaryLeft) {
-              playerRef.current.position.x = boundaryLeft;
-              hitDirectionRef.current.x = -hitDirectionRef.current.x * 0.5;
-            } else if (newX > boundaryRight) {
-              playerRef.current.position.x = boundaryRight;
-              hitDirectionRef.current.x = -hitDirectionRef.current.x * 0.5;
-            } else {
-              playerRef.current.position.x = newX;
-            }
-
-            playerRef.current.position.z += hitDirectionRef.current.z * delta * (4 - airProgress * 3);
-            playerRef.current.scale.set(1, 1, 1);
+            let nx = P.position.x + hitDirRef.current.x * delta * (4 - ap * 3);
+            if (nx < bL) { nx = bL; hitDirRef.current.x *= -0.5; }
+            else if (nx > bR) { nx = bR; hitDirRef.current.x *= -0.5; }
+            P.position.x = nx;
+            P.position.z += hitDirRef.current.z * delta * (4 - ap * 3);
+            P.scale.set(1, 1, 1);
           }
-          // Phase 3: Crash landing (0.8-1.2s)
+          // Phase 3: Landing (0.8–1.2s)
           else {
-            const landProgress = (animTime - 0.8) / 0.4;
+            const lp = (t - 0.8) / 0.4;
+            P.rotation.x = Math.PI * 5 + lp * Math.PI * 0.5;
+            P.rotation.y = Math.PI * 3 + lp * Math.PI * 0.3;
+            P.rotation.z = Math.PI * 4 + lp * Math.PI * 0.4;
 
-            // Final tumbles
-            playerRef.current.rotation.x = Math.PI * 5 + landProgress * Math.PI * 0.5;
-            playerRef.current.rotation.y = Math.PI * 3 + landProgress * Math.PI * 0.3;
-            playerRef.current.rotation.z = Math.PI * 4 + landProgress * Math.PI * 0.4;
+            const bounce = Math.max(0, Math.sin(lp * Math.PI * 2) * 0.3 * (1 - lp));
+            P.position.y = Math.max(-0.2, bounce - lp * 0.5);
 
-            // Hit ground and bounce
-            const bounce = Math.max(0, Math.sin(landProgress * Math.PI * 2) * 0.3 * (1 - landProgress));
-            playerRef.current.position.y = Math.max(-0.2, bounce - landProgress * 0.5);
+            let nx = P.position.x + hitDirRef.current.x * delta * (1 - lp);
+            if (nx < bL) nx = bL;
+            else if (nx > bR) nx = bR;
+            P.position.x = nx;
+            P.position.z += hitDirRef.current.z * delta * (1 - lp);
 
-            // Slide to stop with boundary check
-            const newX = playerRef.current.position.x + hitDirectionRef.current.x * delta * (1 - landProgress);
-
-            if (newX < boundaryLeft) {
-              playerRef.current.position.x = boundaryLeft;
-            } else if (newX > boundaryRight) {
-              playerRef.current.position.x = boundaryRight;
+            if (lp < 0.5) {
+              const s = Math.sin(lp * Math.PI * 2) * 0.3;
+              P.scale.set(1 + s, 1 - s, 1 + s);
             } else {
-              playerRef.current.position.x = newX;
-            }
-
-            playerRef.current.position.z += hitDirectionRef.current.z * delta * (1 - landProgress);
-
-            // Squash on landing
-            if (landProgress < 0.5) {
-              const squashAmount = Math.sin(landProgress * Math.PI * 2) * 0.3;
-              playerRef.current.scale.set(1 + squashAmount, 1 - squashAmount, 1 + squashAmount);
-            } else {
-              playerRef.current.scale.set(1, 1, 1);
+              P.scale.set(1, 1, 1);
             }
           }
-        } else {
-          // Animation complete
-          if (!gameOverRef.current) {
-            gameOverRef.current = true;
-            survivalTimeRef.current = (Date.now() - gameStartTimeRef.current) / 1000;
-            onGameOver(score, survivalTimeRef.current, gameStatsRef.current);
-          }
+        } else if (!gameOverRef.current) {
+          gameOverRef.current = true;
+          survivalRef.current = (Date.now() - startTimeRef.current) / 1000;
+          onGameOver(score, survivalRef.current, statsRef.current);
         }
       }
 
-          rendererRef.current.render(sceneRef.current, cameraRef.current);
-          gl.endFrameEXP();
-        } catch (animateError) {
-          console.error('VoxelScene: Error in animate loop:', animateError);
-          // Continue animation loop despite errors
-        }
-      };
+      rendererRef.current.render(sceneRef.current, cameraRef.current);
+      gl.endFrameEXP();
+    };
 
-      console.log('VoxelScene: Starting animation loop');
-      animate();
-      console.log('VoxelScene: Initialization complete');
-    } catch (error) {
-      console.error('VoxelScene: Error in onContextCreate:', error);
-      console.error('VoxelScene: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-      // Display error to user
-      Alert.alert('Game Error', 'Failed to initialize game: ' + (error instanceof Error ? error.message : String(error)));
-    }
+    animate();
   };
 
+  // ═══════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════
   return (
     <View style={{ flex: 1 }} {...panResponder.panHandlers}>
       <GLView style={{ flex: 1 }} onContextCreate={onContextCreate} />
-      <View style={styles.environmentOverlay}>
-        <Text style={styles.environmentText}>
-          {getEnvironmentDescription(environmentRef.current)}
-        </Text>
-      </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  environmentOverlay: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    padding: 8,
-    borderRadius: 8,
-  },
-  environmentText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-});

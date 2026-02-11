@@ -41,7 +41,6 @@ export default function Game() {
   }, [savedUsername]);
 
   const startGame = () => {
-    console.log('Game: Starting new game');
     setScore(0);
     setSavedScore(false);
     setGameKey(prev => prev + 1); // Force remount of VoxelScene
@@ -98,12 +97,11 @@ export default function Game() {
   };
 
   if (gameState === 'playing') {
-    console.log('Game: Rendering playing state with key:', gameKey);
     return (
-      <View style={{ flex: 1, backgroundColor: '#0b1220' }}>
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
         <VoxelScene key={gameKey} score={score} setScore={setScore} onGameOver={handleGameOver} />
         <View style={styles.scoreOverlay}>
-          <Text style={styles.scoreText}>Score: {score}</Text>
+          <Text style={styles.scoreText}>{score}</Text>
         </View>
       </View>
     );
@@ -577,18 +575,19 @@ const styles = StyleSheet.create({
   },
   scoreOverlay: {
     position: 'absolute',
-    top: 50,
+    top: 60,
     left: 0,
     right: 0,
     alignItems: 'center',
+    pointerEvents: 'none',
   },
   scoreText: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 64,
+    fontWeight: '900',
     color: '#fff',
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: -1, height: 1 },
-    textShadowRadius: 10,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
   },
   bannerContainer: {
     position: 'absolute',
