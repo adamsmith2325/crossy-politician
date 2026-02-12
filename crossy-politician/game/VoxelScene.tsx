@@ -91,6 +91,7 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
   const targetPosRef = useRef({ x: 0, z: 0 });
   const laneObjectsRef = useRef<Map<number, THREE.Group>>(new Map());
   const animFrameRef = useRef<number | null>(null);
+  const skyscrapersRef = useRef<THREE.Group[]>([]);
 
   // ── Animation refs ────────────────────────────────────────────────
   const jumpProgressRef = useRef(0);
@@ -160,21 +161,25 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
     const tier = Math.floor(currentScore / 5);
 
     // Base progression rate depends on difficulty index
-    // 0 = no progression, 100 = very aggressive progression
+    // Tuned so that 50 = challenging, fast-paced gameplay
     const progressionRate = difficultyIndex / 100;
 
     return {
-      // Speed multiplier for vehicles (increases speed significantly at high difficulty)
-      speedMultiplier: 1 + (tier * 0.25 * progressionRate),
+      // Speed multiplier for vehicles - MUCH MORE AGGRESSIVE
+      // At 50 index: Tier 1 = 1.5x speed, Tier 2 = 2.0x speed
+      speedMultiplier: 1 + (tier * 1.0 * progressionRate),
 
       // Probability of road lanes (more roads = harder)
-      roadProbabilityIncrease: tier * 0.08 * progressionRate,
+      // At 50 index: Tier 1 = +8%, Tier 2 = +16%
+      roadProbabilityIncrease: tier * 0.16 * progressionRate,
 
-      // Car density multiplier (more cars per lane)
-      carDensityMultiplier: 1 + (tier * 0.3 * progressionRate),
+      // Car density multiplier - MORE CARS FASTER
+      // At 50 index: Tier 1 = 1.4x cars, Tier 2 = 1.8x cars
+      carDensityMultiplier: 1 + (tier * 0.8 * progressionRate),
 
-      // Minimum gap between cars (smaller = harder)
-      minGapReduction: tier * 0.2 * progressionRate,
+      // Minimum gap between cars - TIGHTER GAPS
+      // At 50 index: Tier 1 = -0.3 gap, Tier 2 = -0.6 gap
+      minGapReduction: tier * 0.6 * progressionRate,
 
       // Overall difficulty tier (for reference)
       tier,
@@ -302,7 +307,86 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
   };
 
   // ═══════════════════════════════════════════════════════════════════
-  // NYC BUILDING HELPER
+  // SKYSCRAPER HELPER (Background buildings)
+  // ═══════════════════════════════════════════════════════════════════
+  const buildSkyscraper = (): THREE.Group => {
+    const g = new THREE.Group();
+    const height = 15 + Math.random() * 25; // Very tall (15-40 units)
+    const width = 3 + Math.random() * 4;
+    const depth = 3 + Math.random() * 4;
+
+    // Building style variations
+    const isBrick = Math.random() < 0.2;
+    const isGlass = Math.random() < 0.4;
+
+    let buildingColor;
+    if (isBrick) {
+      buildingColor = 0x8b5a3c; // Brownstone
+    } else if (isGlass) {
+      buildingColor = 0x6b8da8; // Glass/steel blue
+    } else {
+      buildingColor = Math.random() < 0.5 ? 0xa8a8a8 : 0x7a7a7a; // Gray variations
+    }
+
+    // Main tower
+    const building = new THREE.Mesh(
+      new THREE.BoxGeometry(width, height, depth),
+      new THREE.MeshStandardMaterial({
+        color: buildingColor,
+        metalness: isGlass ? 0.6 : 0.1,
+        roughness: isGlass ? 0.3 : 0.9,
+      })
+    );
+    building.position.y = height / 2;
+    building.castShadow = true;
+    building.receiveShadow = true;
+    g.add(building);
+
+    // Windows (lots of them for skyscraper effect)
+    const windowRows = Math.floor(height * 2);
+    const windowCols = Math.floor(width * 1.2);
+    const windowSize = 0.15;
+    const windowSpacing = 0.4;
+
+    // Only render windows on front faces to save performance
+    for (let row = 0; row < windowRows; row++) {
+      for (let col = 0; col < windowCols; col++) {
+        const isLit = Math.random() < 0.5; // 50% windows lit
+        const windowMat = new THREE.MeshStandardMaterial({
+          color: isLit ? 0xffeaa0 : 0x1a1f2a,
+          emissive: isLit ? 0x664400 : 0x000000,
+          emissiveIntensity: isLit ? 0.4 : 0,
+        });
+
+        const window = new THREE.Mesh(
+          new THREE.BoxGeometry(windowSize, windowSize, 0.05),
+          windowMat
+        );
+
+        const xPos = (col - windowCols / 2 + 0.5) * windowSpacing;
+        const yPos = (row - windowRows / 2 + 0.5) * windowSpacing + height / 2;
+
+        // Front face
+        window.position.set(xPos, yPos, depth / 2 + 0.025);
+        g.add(window);
+      }
+    }
+
+    // Rooftop details for some buildings
+    if (Math.random() < 0.3) {
+      const antenna = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.05, 3, 6),
+        new THREE.MeshStandardMaterial({ color: 0x888888 })
+      );
+      antenna.position.y = height + 1.5;
+      g.add(antenna);
+    }
+
+    return g;
+  };
+
+  // ═══════════════════════════════════════════════════════════════════
+  // NYC BUILDING HELPER (Sidewalk buildings)
   // ═══════════════════════════════════════════════════════════════════
   const buildNYCBuilding = (): THREE.Group => {
     const g = new THREE.Group();
@@ -427,6 +511,49 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
       const lane = createLane(furthestLaneRef.current, score);
       lanesRef.current.push(lane);
       addLaneToScene(lane, scene);
+
+      // Add skyscrapers every 5 lanes - positioned close to be visible within 3 moves
+      if (furthestLaneRef.current % 5 === 0) {
+        const zPos = furthestLaneRef.current;
+
+        // Close left (visible after 3-4 left moves)
+        const leftClose = buildSkyscraper();
+        leftClose.position.set(-7, 0, -zPos);
+        scene.add(leftClose);
+        skyscrapersRef.current.push(leftClose);
+
+        // Close right (visible after 3-4 right moves)
+        const rightClose = buildSkyscraper();
+        rightClose.position.set(6, 0, -zPos);
+        scene.add(rightClose);
+        skyscrapersRef.current.push(rightClose);
+
+        // Mid distance (every 10 lanes) - slightly further back for depth
+        if (furthestLaneRef.current % 10 === 0) {
+          const leftMid = buildSkyscraper();
+          leftMid.position.set(-11, 0, -zPos - 2);
+          scene.add(leftMid);
+          skyscrapersRef.current.push(leftMid);
+
+          const rightMid = buildSkyscraper();
+          rightMid.position.set(10, 0, -zPos - 2);
+          scene.add(rightMid);
+          skyscrapersRef.current.push(rightMid);
+        }
+
+        // Far background (every 15 lanes) - for skyline depth
+        if (furthestLaneRef.current % 15 === 0) {
+          const leftFar = buildSkyscraper();
+          leftFar.position.set(-15, 0, -zPos - 5);
+          scene.add(leftFar);
+          skyscrapersRef.current.push(leftFar);
+
+          const rightFar = buildSkyscraper();
+          rightFar.position.set(14, 0, -zPos - 5);
+          scene.add(rightFar);
+          skyscrapersRef.current.push(rightFar);
+        }
+      }
     }
   };
   const genBehind = (scene: THREE.Scene, row: number) => {
@@ -456,6 +583,16 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
     });
     obstaclesRef.current = obstaclesRef.current.filter(o => {
       if (o.laneIdx < row - d) { scene.remove(o.mesh); return false; }
+      return true;
+    });
+
+    // Cleanup old skyscrapers
+    skyscrapersRef.current = skyscrapersRef.current.filter(s => {
+      const zPos = Math.abs(s.position.z);
+      if (zPos < row - 50) {
+        scene.remove(s);
+        return false;
+      }
       return true;
     });
   };
@@ -692,6 +829,49 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
     weatherRef.current = createWeatherParticles(
       scene, env.weather, new THREE.Vector3(sx, 0, sz)
     );
+
+    // ── Skyscrapers (Background cityscape) ──
+    // Create skyscrapers close to the sides and along the path
+    // Start from ahead of player and go far back
+    for (let zPos = 10; zPos >= -80; zPos -= 5) {
+      // Close left side (visible from game view)
+      const leftClose = buildSkyscraper();
+      leftClose.position.set(-17, 0, -zPos);
+      scene.add(leftClose);
+      skyscrapersRef.current.push(leftClose);
+
+      // Close right side (visible from game view)
+      const rightClose = buildSkyscraper();
+      rightClose.position.set(17, 0, -zPos);
+      scene.add(rightClose);
+      skyscrapersRef.current.push(rightClose);
+
+      // Add depth layers - mid distance
+      if (zPos % 10 === 0) {
+        const leftMid = buildSkyscraper();
+        leftMid.position.set(-28, 0, -zPos - 2);
+        scene.add(leftMid);
+        skyscrapersRef.current.push(leftMid);
+
+        const rightMid = buildSkyscraper();
+        rightMid.position.set(28, 0, -zPos - 2);
+        scene.add(rightMid);
+        skyscrapersRef.current.push(rightMid);
+      }
+
+      // Add depth layers - far background
+      if (zPos % 15 === 0) {
+        const leftFar = buildSkyscraper();
+        leftFar.position.set(-40, 0, -zPos - 5);
+        scene.add(leftFar);
+        skyscrapersRef.current.push(leftFar);
+
+        const rightFar = buildSkyscraper();
+        rightFar.position.set(40, 0, -zPos - 5);
+        scene.add(rightFar);
+        skyscrapersRef.current.push(rightFar);
+      }
+    }
 
     // ═════════════════════════════════════════════════════════════════
     // ANIMATION LOOP

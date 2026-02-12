@@ -30,7 +30,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     "expo-asset",
-    "expo-router"
+    "expo-router",
+    [
+      "react-native-google-mobile-ads",
+      {
+        "androidAppId": "ca-app-pub-5901242452853695~3024314584",
+        "iosAppId": "ca-app-pub-5901242452853695~3024314584"
+      }
+    ]
   ],
   extra: {
     // Fill these via EXPO_PUBLIC_* env vars at build time or edit here.

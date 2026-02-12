@@ -9,6 +9,8 @@ import { saveScore } from '../lib/leaderboard';
 import { useAchievementsWithPersistence } from './achievementsManagerWithPersistence';
 import { getDifficultyIndex } from '../lib/difficultyApi';
 import { shareScore, shareHighScore } from '../utils/shareScore';
+import { showInterstitialIfEligible } from '../ads/adManager';
+import { incrementGamePlayCount } from '../ads/adCounters';
 
 type GameState = 'menu' | 'playing' | 'gameOver';
 
@@ -24,7 +26,7 @@ export default function Game() {
   const [bestTime, setBestTime] = useState(0);
 
   const [gameKey, setGameKey] = useState(0);
-  const [difficultyIndex, setDifficultyIndex] = useState(75); // Default to hard
+  const [difficultyIndex, setDifficultyIndex] = useState(50); // Default
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
@@ -63,7 +65,7 @@ export default function Game() {
     setGameState('playing');
   };
 
-  const handleGameOver = (finalScore: number, time: number, gameStats?: {
+  const handleGameOver = async (finalScore: number, time: number, gameStats?: {
     dodges: number;
     jumps: number;
     busesDodged: number;
@@ -83,6 +85,10 @@ export default function Game() {
         ...gameStats,
       });
     }
+
+    // Increment play count and show interstitial ad if eligible (every 4 plays)
+    const playCount = await incrementGamePlayCount();
+    await showInterstitialIfEligible(playCount);
   };
 
   const handleSaveScore = async () => {

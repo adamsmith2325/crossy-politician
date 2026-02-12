@@ -1,8 +1,8 @@
 import { AppOpenAd, InterstitialAd, AdEventType, TestIds } from 'react-native-google-mobile-ads';
 
-// Replace for production:
-export const APP_OPEN_AD_UNIT_ID = TestIds.APP_OPEN;       // e.g. 'ca-app-pub-xxx/yyy'
-export const INTERSTITIAL_AD_UNIT_ID = TestIds.INTERSTITIAL;
+// Production Ad Unit IDs
+export const APP_OPEN_AD_UNIT_ID = 'ca-app-pub-5901242452853695/4578355515';
+export const INTERSTITIAL_AD_UNIT_ID = 'ca-app-pub-5901242452853695/8501837397';
 
 let interstitialLoaded = false;
 let interstitial: InterstitialAd | null = null;
@@ -21,29 +21,39 @@ export const prepareAds = () => {
     interstitial.load();
   }
 
-//   if (!appOpen) {
-//     appOpen = AppOpenAd.createForAdRequest(APP_OPEN_AD_UNIT_ID, { requestNonPersonalizedAdsOnly: true });
-//     appOpen.addAdEventListener(AdEventType.LOADED, () => (appOpenLoaded = true));
-//     appOpen.addAdEventListener(AdEventType.CLOSED, () => {
-//       appOpenLoaded = false;
-//       appOpen?.load();
-//     });
-//     appOpen.load();
-//   }
+  if (!appOpen) {
+    appOpen = AppOpenAd.createForAdRequest(APP_OPEN_AD_UNIT_ID, { requestNonPersonalizedAdsOnly: true });
+    appOpen.addAdEventListener(AdEventType.LOADED, () => (appOpenLoaded = true));
+    appOpen.addAdEventListener(AdEventType.CLOSED, () => {
+      appOpenLoaded = false;
+      appOpen?.load();
+    });
+    appOpen.load();
+  }
 };
 
-// export const showAppOpenOnStart = () => {
-//   prepareAds();
-//   if (appOpen && appOpenLoaded) {
-//     appOpen.show();
-//   } else {
-//     appOpen?.addAdEventListener(AdEventType.LOADED, () => appOpen?.show());
-//   }
-// };
+export const showAppOpenIfEligible = async (appOpenCount: number) => {
+  prepareAds();
+  if (appOpenCount > 0 && appOpenCount % 5 === 0 && appOpenLoaded && appOpen) {
+    return new Promise<void>((resolve) => {
+      const onClosed = () => {
+        appOpen?.removeAllListeners();
+        appOpenLoaded = false;
+        appOpen?.load();
+        resolve();
+      };
+      if (appOpen) {
+        appOpen.addAdEventListener(AdEventType.CLOSED, onClosed);
+        appOpen.show();
+      }
+    });
+  }
+  return Promise.resolve();
+};
 
 export const showInterstitialIfEligible = async (runCount: number) => {
   prepareAds();
-  if (runCount > 0 && runCount % 3 === 0 && interstitialLoaded && interstitial) {
+  if (runCount > 0 && runCount % 4 === 0 && interstitialLoaded && interstitial) {
     return new Promise<void>((resolve) => {
       const onClosed = () => {
         interstitial?.removeAllListeners();
