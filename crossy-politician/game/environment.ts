@@ -59,51 +59,51 @@ export function generateRandomEnvironment(): EnvironmentConfig {
 export function getLightingConfig(env: EnvironmentConfig): LightingConfig {
   const { timeOfDay, weather } = env;
 
-  // Base configs for different times of day
+  // Base configs for different times of day - NYC Urban Style
   const timeConfigs: Record<TimeOfDay, LightingConfig> = {
     morning: {
-      skyColor: 0xffd89b,
-      groundColor: 0x8b6f47,
-      hemisphereIntensity: 1.2, // Brighter morning glow
+      skyColor: 0xd4c4a8, // More polluted/hazy NYC morning
+      groundColor: 0x5a5250, // Darker urban ground
+      hemisphereIntensity: 0.9,
       directionalColor: 0xffeaa7,
-      directionalIntensity: 1.0, // Enhanced directional light
-      ambientColor: 0xffd89b,
-      ambientIntensity: 0.6, // Warmer ambient fill
-      fogColor: 0xffd89b,
-      fogDensity: 0.002,
+      directionalIntensity: 0.8,
+      ambientColor: 0xc4b090,
+      ambientIntensity: 0.8, // Higher ambient for urban reflections
+      fogColor: 0xc4b4a0,
+      fogDensity: 0.004, // Thicker morning smog
     },
     day: {
-      skyColor: 0x87ceeb,
-      groundColor: 0x7cb342,
-      hemisphereIntensity: 1.4, // Increased for brighter, more vibrant scene
-      directionalColor: 0xfff5e6, // Slightly warmer white for golden tint
-      directionalIntensity: 1.2, // Stronger shadows and depth
-      ambientColor: 0xb3d9ff,
-      ambientIntensity: 0.7, // Boosted ambient for less harsh shadows
-      fogColor: 0xcce5ff,
-      fogDensity: 0.001,
+      skyColor: 0x6eb8d4, // Slightly polluted daytime sky
+      groundColor: 0x4a4a4a, // Darker concrete/asphalt
+      hemisphereIntensity: 1.2,
+      directionalColor: 0xf5f5e8,
+      directionalIntensity: 1.0,
+      ambientColor: 0x98b5c9,
+      ambientIntensity: 0.9, // Very bright for city reflections
+      fogColor: 0xa8c4d5,
+      fogDensity: 0.003, // More visible urban haze
     },
     evening: {
-      skyColor: 0xff7e5f,
-      groundColor: 0x5f4842,
-      hemisphereIntensity: 1.0, // Warmer evening light
-      directionalColor: 0xff9966,
-      directionalIntensity: 0.8, // Enhanced golden hour lighting
-      ambientColor: 0xff9966,
-      ambientIntensity: 0.6, // Richer ambient glow
-      fogColor: 0xffa07a,
-      fogDensity: 0.003,
+      skyColor: 0xff8a5b, // NYC sunset
+      groundColor: 0x4a3f35,
+      hemisphereIntensity: 0.9,
+      directionalColor: 0xffa366,
+      directionalIntensity: 0.7,
+      ambientColor: 0xff9f6e,
+      ambientIntensity: 0.7, // Warm evening glow from buildings
+      fogColor: 0xffb894,
+      fogDensity: 0.0035, // Evening haze
     },
     night: {
-      skyColor: 0x1a1a2e,
-      groundColor: 0x0f0f1e,
-      hemisphereIntensity: 0.4,
-      directionalColor: 0x6b7c99,
-      directionalIntensity: 0.3,
-      ambientColor: 0x2d3561,
-      ambientIntensity: 0.4,
-      fogColor: 0x1a1a2e,
-      fogDensity: 0.004,
+      skyColor: 0x1a1f2e, // NYC night sky with light pollution
+      groundColor: 0x15151a,
+      hemisphereIntensity: 0.5, // Increased for city lights
+      directionalColor: 0x8899aa,
+      directionalIntensity: 0.4,
+      ambientColor: 0x3d4a5f, // Blue-ish glow from street lights
+      ambientIntensity: 0.6, // Higher ambient from city illumination
+      fogColor: 0x2a2f3a,
+      fogDensity: 0.005, // Thicker urban night haze
     },
   };
 

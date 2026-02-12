@@ -1,25 +1,32 @@
 export const COLS = 9;
 export const ROWS = 14;
-export const ROAD_PROBABILITY = 0.6;
+export const ROAD_PROBABILITY = 0.85; // NYC is mostly roads!
 export const MIN_CAR_GAP = 2;
 
-// Palette – Enhanced with Crossy Road-style vibrant, saturated colors
+// Palette – NYC-themed urban colors
 export const C = {
-  grass1: '#7DD956', // More vibrant green
-  grass2: '#68C73D', // Brighter, punchier green
-  road: '#2F353D', // Slightly darker for contrast
-  roadEdge: '#252A32',
-  roadDash: '#FFE44D', // Bright yellow (more visible)
-  treeLeaf: '#5BC930', // More saturated green
-  treeLeaf2: '#4AAF28', // Vivid green
-  treeTrunk: '#8B5A2B', // Richer brown
-  carBody: '#FF4422', // Brighter red (more saturated)
-  carBody2: '#FFD700', // Golden yellow (more vibrant)
+  grass1: '#3D5A3F', // Muted urban park green (less vibrant)
+  grass2: '#344D36', // Darker muted park green
+  road: '#3A3A3A', // NYC asphalt gray
+  roadEdge: '#2A2A2A', // Darker road edge
+  roadDash: '#FFE44D', // Bright yellow road markings
+  sidewalk: '#8B8680', // Concrete sidewalk
+  sidewalkDark: '#757270', // Darker concrete
+  treeLeaf: '#3D5A3F', // Muted park tree green
+  treeLeaf2: '#344D36', // Darker tree green
+  treeTrunk: '#5D4037', // Tree trunk brown
+  carBody: '#FF4422', // Bright red (classic NYC cab alternative)
+  carBody2: '#FFD700', // Yellow (NYC taxi)
   carRoof: '#FFFFFF', // Pure white
   carWheel: '#0A0A0A', // Deeper black
   truckBody: '#E8EEF7',
-  truckCab: '#E62E2E', // More vibrant red
-  shadow: 'rgba(0,0,0,0.25)', // Slightly stronger shadows
-  player: '#FFCC33', // Brighter golden yellow
+  truckCab: '#E62E2E', // Vibrant red
+  shadow: 'rgba(0,0,0,0.3)', // Stronger urban shadows
+  player: '#FFCC33', // Bright yellow
+  building: '#B8B8B8', // Light gray building
+  buildingDark: '#8A8A8A', // Dark gray building
+  buildingWindow: '#87CEEB', // Sky blue windows
+  buildingBrick: '#A0522D', // Brick red
+  nycYellow: '#F7B731', // NYC taxi yellow
 };
 export const TILE_SIZE_MULTIPLIER = 1;

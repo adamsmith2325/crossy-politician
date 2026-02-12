@@ -2,15 +2,15 @@ import { ConfigContext, ExpoConfig } from 'expo/config';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "Crossy Politician",
+  name: "Crossy Trump",
   slug: "crossy-politician",
   scheme: "crossypolitician",
   version: "1.0.1",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
-  icon: "./assets/icon.png",
+  icon: "./assets/trump-icon.png",
   splash: {
-    image: "./assets/splash.png",
+    image: "./assets/trump-splash.png",
     resizeMode: "contain",
     backgroundColor: "#0b1220"
   },

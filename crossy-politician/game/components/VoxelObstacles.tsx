@@ -356,19 +356,232 @@ export function buildNewspaperStand(): THREE.Group {
 }
 
 /**
- * Randomly select and build an obstacle
+ * Build a NYC parking meter obstacle
+ */
+export function buildParkingMeter(): THREE.Group {
+  const g = new THREE.Group();
+
+  // Post
+  const post = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04, 0.04, 0.7, 8),
+    new THREE.MeshStandardMaterial({ color: 0x4a4a4a })
+  );
+  post.position.y = 0.35;
+  g.add(post);
+
+  // Meter head
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(0.15, 0.25, 0.1),
+    new THREE.MeshStandardMaterial({ color: 0x5a5a5a })
+  );
+  head.position.y = 0.8;
+  g.add(head);
+
+  // Display screen
+  const screen = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.08, 0.02),
+    new THREE.MeshStandardMaterial({
+      color: 0x00ff00,
+      emissive: 0x00ff00,
+      emissiveIntensity: 0.2
+    })
+  );
+  screen.position.set(0, 0.82, 0.055);
+  g.add(screen);
+
+  return g;
+}
+
+/**
+ * Build a NYC hot dog stand obstacle
+ */
+export function buildHotDogStand(): THREE.Group {
+  const g = new THREE.Group();
+
+  // Cart base
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.15, 0.5),
+    new THREE.MeshStandardMaterial({ color: 0x808080 })
+  );
+  base.position.y = 0.075;
+  g.add(base);
+
+  // Cart body
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 0.4, 0.45),
+    new THREE.MeshStandardMaterial({ color: 0xdc143c })
+  );
+  body.position.y = 0.35;
+  body.castShadow = true;
+  g.add(body);
+
+  // Umbrella pole
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.02, 0.02, 0.6, 8),
+    new THREE.MeshStandardMaterial({ color: 0x333333 })
+  );
+  pole.position.y = 0.85;
+  g.add(pole);
+
+  // Umbrella
+  const umbrella = new THREE.Mesh(
+    new THREE.ConeGeometry(0.5, 0.15, 8),
+    new THREE.MeshStandardMaterial({ color: 0xffd700 })
+  );
+  umbrella.position.y = 1.2;
+  umbrella.rotation.y = Math.PI;
+  g.add(umbrella);
+
+  return g;
+}
+
+/**
+ * Build a NYC subway entrance obstacle
+ */
+export function buildSubwayEntrance(): THREE.Group {
+  const g = new THREE.Group();
+
+  // Stairs box
+  const stairs = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.3, 0.6),
+    new THREE.MeshStandardMaterial({ color: 0x3a3a3a })
+  );
+  stairs.position.y = 0.15;
+  stairs.castShadow = true;
+  g.add(stairs);
+
+  // Railing left
+  const railLeft = new THREE.Mesh(
+    new THREE.BoxGeometry(0.05, 0.4, 0.6),
+    new THREE.MeshStandardMaterial({ color: 0x2a2a2a })
+  );
+  railLeft.position.set(-0.425, 0.35, 0);
+  g.add(railLeft);
+
+  // Railing right
+  const railRight = new THREE.Mesh(
+    new THREE.BoxGeometry(0.05, 0.4, 0.6),
+    new THREE.MeshStandardMaterial({ color: 0x2a2a2a })
+  );
+  railRight.position.set(0.425, 0.35, 0);
+  g.add(railRight);
+
+  // Subway sign
+  const sign = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.3, 0.05),
+    new THREE.MeshStandardMaterial({ color: 0x0039a6 })
+  );
+  sign.position.set(0, 0.7, 0.3);
+  g.add(sign);
+
+  // Subway letter "M"
+  const letter = new THREE.Mesh(
+    new THREE.BoxGeometry(0.15, 0.15, 0.02),
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.1
+    })
+  );
+  letter.position.set(0, 0.7, 0.33);
+  g.add(letter);
+
+  return g;
+}
+
+/**
+ * Build a NYC yellow taxi cab (parked) obstacle
+ */
+export function buildYellowCab(): THREE.Group {
+  const g = new THREE.Group();
+
+  // Car body
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.3, 0.8),
+    new THREE.MeshStandardMaterial({ color: 0xf7b731 })
+  );
+  body.position.y = 0.2;
+  body.castShadow = true;
+  g.add(body);
+
+  // Roof
+  const roof = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, 0.15, 0.5),
+    new THREE.MeshStandardMaterial({ color: 0xf7b731 })
+  );
+  roof.position.y = 0.425;
+  g.add(roof);
+
+  // Taxi light on roof
+  const taxiLight = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.06, 0.08),
+    new THREE.MeshStandardMaterial({
+      color: 0xffff00,
+      emissive: 0xffff00,
+      emissiveIntensity: 0.3
+    })
+  );
+  taxiLight.position.y = 0.53;
+  g.add(taxiLight);
+
+  return g;
+}
+
+/**
+ * Build a NYC street vendor cart obstacle
+ */
+export function buildStreetVendorCart(): THREE.Group {
+  const g = new THREE.Group();
+
+  // Cart base
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.5, 0.4),
+    new THREE.MeshStandardMaterial({ color: 0x4a7c59 })
+  );
+  base.position.y = 0.25;
+  base.castShadow = true;
+  g.add(base);
+
+  // Display top
+  const display = new THREE.Mesh(
+    new THREE.BoxGeometry(0.65, 0.1, 0.45),
+    new THREE.MeshStandardMaterial({ color: 0x8b4513 })
+  );
+  display.position.y = 0.55;
+  g.add(display);
+
+  // Products (colorful boxes)
+  for (let i = 0; i < 3; i++) {
+    const product = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.12, 0.12),
+      new THREE.MeshStandardMaterial({
+        color: [0xff6b6b, 0x4ecdc4, 0xffe66d][i]
+      })
+    );
+    product.position.set((i - 1) * 0.2, 0.66, 0);
+    g.add(product);
+  }
+
+  return g;
+}
+
+/**
+ * Randomly select and build an obstacle (NYC themed)
  */
 export function buildRandomObstacle(): THREE.Group {
   const obstacles = [
-    buildFireHydrant,
-    buildMailbox,
-    buildTrafficCone,
-    buildTrashCan,
-    buildStreetLamp,
-    buildBench,
-    buildBusStop,
-    buildTree,
-    buildNewspaperStand,
+    buildFireHydrant,      // Keep - iconic NYC
+    buildParkingMeter,     // New - NYC specific
+    buildTrafficCone,      // Keep - common in NYC
+    buildTrashCan,         // Keep - NYC trash cans
+    buildStreetLamp,       // Keep - NYC street lamps
+    buildBench,            // Keep - park benches
+    buildHotDogStand,      // New - iconic NYC
+    buildSubwayEntrance,   // New - very NYC
+    buildYellowCab,        // New - parked taxi
+    buildStreetVendorCart, // New - NYC vendors
+    buildTree,             // Keep - Central Park trees
+    buildNewspaperStand,   // Keep - NYC newsstands
   ];
 
   const randomIndex = Math.floor(Math.random() * obstacles.length);

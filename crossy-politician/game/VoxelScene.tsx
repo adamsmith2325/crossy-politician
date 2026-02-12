@@ -35,11 +35,13 @@ const CAM_OFF_X = CAM_DISTANCE * Math.cos(CAM_ELEVATION) * Math.sin(CAM_YAW);
 const CAM_OFF_Y = CAM_DISTANCE * Math.sin(CAM_ELEVATION);
 const CAM_OFF_Z = CAM_DISTANCE * Math.cos(CAM_ELEVATION) * Math.cos(CAM_YAW);
 
-// ── Crossy Road lane colours ────────────────────────────────────────
-const GRASS_A = 0x7dd956;
-const GRASS_B = 0x68c73d;
-const ROAD_A = 0x3c424a;
-const ROAD_B = 0x353b43;
+// ── NYC Urban lane colors ───────────────────────────────────────────
+const GRASS_A = 0x3d5a3f; // Muted urban park green (less vibrant)
+const GRASS_B = 0x344d36; // Darker muted park green
+const ROAD_A = 0x3a3a3a; // NYC asphalt
+const ROAD_B = 0x343434; // Slightly darker asphalt
+const SIDEWALK_A = 0x8b8680; // Concrete sidewalk
+const SIDEWALK_B = 0x757270; // Darker concrete
 
 // ── Interfaces ──────────────────────────────────────────────────────
 interface CarObject {
@@ -64,10 +66,11 @@ interface VoxelSceneProps {
     dodges: number; jumps: number; busesDodged: number;
     policeDodged: number; closeCall: boolean;
   }) => void;
+  difficultyIndex: number; // 0-100, controls how aggressively difficulty scales
 }
 
 // ═════════════════════════════════════════════════════════════════════
-export default function VoxelScene({ score, setScore, onGameOver }: VoxelSceneProps) {
+export default function VoxelScene({ score, setScore, onGameOver, difficultyIndex }: VoxelSceneProps) {
 
   // ── Core refs ─────────────────────────────────────────────────────
   const glRef = useRef<any>(null);
@@ -96,6 +99,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   const hitTimeRef = useRef(0);
   const hitDirRef = useRef({ x: 0, z: 0 });
   const smoothLookRef = useRef({ x: 0, z: 0 });
+  const deathParticlesRef = useRef<THREE.Points | null>(null);
+  const screenShakeRef = useRef({ x: 0, y: 0, intensity: 0 });
 
   // ── Generation tracking ───────────────────────────────────────────
   const furthestLaneRef = useRef(-1);
@@ -116,6 +121,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   useEffect(() => {
     initSounds();
     startTimeRef.current = Date.now();
+    console.log(`🎮 Game started with difficulty index: ${difficultyIndex}`);
     return () => {
       if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
       gameOverRef.current = false;
@@ -128,7 +134,7 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       obstaclesRef.current = [];
       laneObjectsRef.current.clear();
     };
-  }, []);
+  }, [difficultyIndex]);
 
   // ── Swipe Controls ────────────────────────────────────────────────
   const panResponder = useRef(
@@ -147,24 +153,75 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   ).current;
 
   // ═══════════════════════════════════════════════════════════════════
-  // LANE CREATION
+  // DIFFICULTY CALCULATION
+  // ═══════════════════════════════════════════════════════════════════
+  const calculateDifficultyMultipliers = (currentScore: number) => {
+    // Calculate which difficulty tier we're in (every 5 moves)
+    const tier = Math.floor(currentScore / 5);
+
+    // Base progression rate depends on difficulty index
+    // 0 = no progression, 100 = very aggressive progression
+    const progressionRate = difficultyIndex / 100;
+
+    return {
+      // Speed multiplier for vehicles (increases speed significantly at high difficulty)
+      speedMultiplier: 1 + (tier * 0.25 * progressionRate),
+
+      // Probability of road lanes (more roads = harder)
+      roadProbabilityIncrease: tier * 0.08 * progressionRate,
+
+      // Car density multiplier (more cars per lane)
+      carDensityMultiplier: 1 + (tier * 0.3 * progressionRate),
+
+      // Minimum gap between cars (smaller = harder)
+      minGapReduction: tier * 0.2 * progressionRate,
+
+      // Overall difficulty tier (for reference)
+      tier,
+    };
+  };
+
+  // ═══════════════════════════════════════════════════════════════════
+  // LANE CREATION (with progressive difficulty)
   // ═══════════════════════════════════════════════════════════════════
   const createLane = (idx: number, currentScore: number): Lane => {
     if (idx === 0) return { idx, type: 'grass', dir: 0, speed: 0, cars: [] };
 
-    const diff = Math.min(1 + currentScore / 40, 3.5);
-    const roadProb = Math.min(0.65 + currentScore / 200, 0.75);
+    // Get difficulty multipliers based on current score and difficulty index
+    const diffMultipliers = calculateDifficultyMultipliers(currentScore);
+
+    // Base difficulty increases with score
+    const baseDiff = Math.min(1 + currentScore / 40, 3.5);
+    // Apply speed multiplier from difficulty system
+    const diff = baseDiff * diffMultipliers.speedMultiplier;
+
+    // Road probability increases with difficulty - NYC is mostly roads!
+    const baseRoadProb = 0.85 + currentScore / 200; // Start at 85% roads for urban feel
+    const roadProb = Math.min(baseRoadProb + diffMultipliers.roadProbabilityIncrease, 0.95); // Cap at 95%
+
     const type: LaneType = Math.random() < roadProb ? 'road' : 'grass';
     const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
     const speed = type === 'road' ? (0.4 + Math.random() * 0.5) * diff : 0;
 
     const cars: number[] = [];
     if (type === 'road') {
-      const max = Math.min(Math.floor(1 + currentScore / 25), 4);
+      // More cars per lane as difficulty increases
+      const baseMax = Math.floor(1 + currentScore / 25);
+      const max = Math.min(
+        Math.floor(baseMax * diffMultipliers.carDensityMultiplier),
+        6 // Cap at 6 cars per lane
+      );
       const num = Math.floor(Math.random() * max) + 1;
+
+      // Smaller gaps between cars as difficulty increases
+      const baseGap = MIN_CAR_GAP - currentScore / 80;
+      const gap = Math.max(
+        baseGap - diffMultipliers.minGapReduction,
+        0.8 // Minimum gap to keep it playable
+      );
+
       for (let i = 0; i < num * 3 && cars.length < num; i++) {
         const pos = Math.random() * COLS;
-        const gap = Math.max(MIN_CAR_GAP - currentScore / 80, 1.3);
         if (!cars.some(c => Math.abs(c - pos) < gap)) cars.push(pos);
       }
     }
@@ -172,13 +229,14 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   };
 
   // ═══════════════════════════════════════════════════════════════════
-  // TILE BUILDING – Crossy Road style chunky coloured strips
+  // TILE BUILDING – NYC style streets with sidewalks and buildings
   // ═══════════════════════════════════════════════════════════════════
   const buildTile = (type: LaneType, laneIdx: number): THREE.Group => {
     const g = new THREE.Group();
     const even = Math.abs(laneIdx) % 2 === 0;
 
     if (type === 'grass') {
+      // Park/green space
       const base = new THREE.Mesh(
         new THREE.BoxGeometry(LANE_WIDTH, 0.5, 1.02),
         new THREE.MeshStandardMaterial({ color: even ? GRASS_A : GRASS_B })
@@ -187,22 +245,112 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
       base.receiveShadow = true;
       g.add(base);
     } else {
-      const base = new THREE.Mesh(
-        new THREE.BoxGeometry(LANE_WIDTH, 0.5, 1.02),
+      // NYC street with sidewalks
+      const roadWidth = 14;
+      const sidewalkWidth = 6;
+
+      // Main road surface
+      const road = new THREE.Mesh(
+        new THREE.BoxGeometry(roadWidth, 0.5, 1.02),
         new THREE.MeshStandardMaterial({ color: even ? ROAD_A : ROAD_B })
       );
-      base.position.y = -0.28;
-      base.receiveShadow = true;
-      g.add(base);
+      road.position.y = -0.28;
+      road.receiveShadow = true;
+      g.add(road);
 
-      // Dashed centre line
+      // Sidewalks on both sides
+      const leftSidewalk = new THREE.Mesh(
+        new THREE.BoxGeometry(sidewalkWidth, 0.48, 1.02),
+        new THREE.MeshStandardMaterial({ color: even ? SIDEWALK_A : SIDEWALK_B })
+      );
+      leftSidewalk.position.set(-(roadWidth / 2 + sidewalkWidth / 2), -0.27, 0);
+      leftSidewalk.receiveShadow = true;
+      g.add(leftSidewalk);
+
+      const rightSidewalk = new THREE.Mesh(
+        new THREE.BoxGeometry(sidewalkWidth, 0.48, 1.02),
+        new THREE.MeshStandardMaterial({ color: even ? SIDEWALK_A : SIDEWALK_B })
+      );
+      rightSidewalk.position.set(roadWidth / 2 + sidewalkWidth / 2, -0.27, 0);
+      rightSidewalk.receiveShadow = true;
+      g.add(rightSidewalk);
+
+      // Dashed centre line (yellow)
       const dashMat = new THREE.MeshStandardMaterial({ color: 0xf4d756 });
-      for (let x = -10; x <= 10; x += 2.4) {
+      for (let x = -6; x <= 6; x += 2.4) {
         const d = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.01, 0.06), dashMat);
         d.position.set(x, -0.02, 0);
         g.add(d);
       }
+
+      // Add buildings on sidewalks (randomly)
+      if (laneIdx > 2 && Math.random() < 0.6) {
+        // Left side building
+        const leftBldg = buildNYCBuilding();
+        leftBldg.position.set(-11.5, 0, 0);
+        g.add(leftBldg);
+      }
+
+      if (laneIdx > 2 && Math.random() < 0.6) {
+        // Right side building
+        const rightBldg = buildNYCBuilding();
+        rightBldg.position.set(11.5, 0, 0);
+        g.add(rightBldg);
+      }
     }
+    return g;
+  };
+
+  // ═══════════════════════════════════════════════════════════════════
+  // NYC BUILDING HELPER
+  // ═══════════════════════════════════════════════════════════════════
+  const buildNYCBuilding = (): THREE.Group => {
+    const g = new THREE.Group();
+    const height = 2 + Math.random() * 4;
+    const width = 2 + Math.random() * 2;
+
+    // Choose building style
+    const isBrick = Math.random() < 0.3;
+    const buildingColor = isBrick ? 0xa0522d : (Math.random() < 0.5 ? 0xb8b8b8 : 0x8a8a8a);
+
+    // Main building body
+    const building = new THREE.Mesh(
+      new THREE.BoxGeometry(width, height, 0.9),
+      new THREE.MeshStandardMaterial({ color: buildingColor })
+    );
+    building.position.y = height / 2 - 0.2;
+    building.castShadow = true;
+    building.receiveShadow = true;
+    g.add(building);
+
+    // Add windows
+    const windowRows = Math.floor(height * 1.5);
+    const windowCols = Math.floor(width * 1.5);
+    const windowSize = 0.15;
+    const windowSpacing = 0.35;
+
+    for (let row = 0; row < windowRows; row++) {
+      for (let col = 0; col < windowCols; col++) {
+        const isLit = Math.random() < 0.4;
+        const windowMat = new THREE.MeshStandardMaterial({
+          color: isLit ? 0xffd966 : 0x2a2f3a,
+          emissive: isLit ? 0x664400 : 0x000000,
+          emissiveIntensity: isLit ? 0.3 : 0,
+        });
+
+        const window = new THREE.Mesh(
+          new THREE.BoxGeometry(windowSize, windowSize, 0.05),
+          windowMat
+        );
+
+        const xPos = (col - windowCols / 2 + 0.5) * windowSpacing;
+        const yPos = (row - windowRows / 2 + 0.5) * windowSpacing + height / 2 - 0.2;
+
+        window.position.set(xPos, yPos, 0.48);
+        g.add(window);
+      }
+    }
+
     return g;
   };
 
@@ -313,6 +461,68 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
   };
 
   // ═══════════════════════════════════════════════════════════════════
+  // DEATH PARTICLE EXPLOSION
+  // ═══════════════════════════════════════════════════════════════════
+  const createDeathExplosion = (scene: THREE.Scene, position: THREE.Vector3) => {
+    const particleCount = 150;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const velocities: THREE.Vector3[] = [];
+    const colors = new Float32Array(particleCount * 3);
+
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      // Start at impact position
+      positions[i3] = position.x;
+      positions[i3 + 1] = position.y;
+      positions[i3 + 2] = position.z;
+
+      // Random velocity in all directions (explosion effect)
+      const velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * 15,
+        Math.random() * 12 + 5, // Upward bias
+        (Math.random() - 0.5) * 15
+      );
+      velocities.push(velocity);
+
+      // Random colors: red, yellow, orange (violent impact colors)
+      const colorChoice = Math.random();
+      if (colorChoice < 0.4) {
+        // Red
+        colors[i3] = 1.0;
+        colors[i3 + 1] = 0.0;
+        colors[i3 + 2] = 0.0;
+      } else if (colorChoice < 0.7) {
+        // Orange
+        colors[i3] = 1.0;
+        colors[i3 + 1] = 0.5;
+        colors[i3 + 2] = 0.0;
+      } else {
+        // Yellow
+        colors[i3] = 1.0;
+        colors[i3 + 1] = 1.0;
+        colors[i3 + 2] = 0.0;
+      }
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    (geometry as any).velocities = velocities;
+
+    const material = new THREE.PointsMaterial({
+      size: 0.2,
+      vertexColors: true,
+      transparent: true,
+      opacity: 1.0,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    scene.add(particles);
+    deathParticlesRef.current = particles;
+  };
+
+  // ═══════════════════════════════════════════════════════════════════
   // COLLISION
   // ═══════════════════════════════════════════════════════════════════
   const checkCollision = (): boolean => {
@@ -355,8 +565,18 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
     if (dir === 'up') {
       playerRowRef.current++;
       targetPosRef.current.z = -playerRowRef.current;
+      const newScore = score + 1;
       setScore(s => s + 1);
       statsRef.current.jumps++;
+
+      // Log difficulty tier changes every 5 moves
+      if (newScore > 0 && newScore % 5 === 0) {
+        const multipliers = calculateDifficultyMultipliers(newScore);
+        console.log(`📈 Difficulty Tier ${multipliers.tier} reached (Score: ${newScore})`);
+        console.log(`  Speed: ${(multipliers.speedMultiplier * 100).toFixed(0)}%`);
+        console.log(`  Car Density: ${(multipliers.carDensityMultiplier * 100).toFixed(0)}%`);
+        console.log(`  Road Probability: +${(multipliers.roadProbabilityIncrease * 100).toFixed(1)}%`);
+      }
     } else if (dir === 'down') {
       if (playerRowRef.current <= 0) return;
       playerRowRef.current--;
@@ -518,6 +738,12 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
             isHitRef.current = true;
             hitTimeRef.current = 0;
             play('hit');
+            // Create death explosion
+            if (sceneRef.current) {
+              createDeathExplosion(sceneRef.current, P.position.clone());
+            }
+            // Trigger screen shake
+            screenShakeRef.current.intensity = 1.0;
           }
         }
       }
@@ -530,8 +756,8 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
         smoothLookRef.current.z += (lz - smoothLookRef.current.z) * 0.08;
 
         cameraRef.current.position.set(
-          smoothLookRef.current.x + CAM_OFF_X,
-          CAM_OFF_Y,
+          smoothLookRef.current.x + CAM_OFF_X + screenShakeRef.current.x,
+          CAM_OFF_Y + screenShakeRef.current.y,
           smoothLookRef.current.z + CAM_OFF_Z
         );
         cameraRef.current.lookAt(smoothLookRef.current.x, 0, smoothLookRef.current.z);
@@ -545,18 +771,22 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           );
         }
       } else {
-        // ── Death camera: centre on player, no look-ahead ──
+        // ── Death camera: centre on player, no look-ahead WITH INTENSE SHAKE ──
         const lx = P.position.x;
         const lz = P.position.z;
         smoothLookRef.current.x += (lx - smoothLookRef.current.x) * 0.05;
         smoothLookRef.current.z += (lz - smoothLookRef.current.z) * 0.05;
 
         cameraRef.current.position.set(
-          smoothLookRef.current.x + CAM_OFF_X,
-          CAM_OFF_Y,
+          smoothLookRef.current.x + CAM_OFF_X + screenShakeRef.current.x,
+          CAM_OFF_Y + screenShakeRef.current.y,
           smoothLookRef.current.z + CAM_OFF_Z
         );
-        cameraRef.current.lookAt(smoothLookRef.current.x, 0, smoothLookRef.current.z);
+        cameraRef.current.lookAt(
+          smoothLookRef.current.x + screenShakeRef.current.x * 0.5,
+          0,
+          smoothLookRef.current.z
+        );
       }
 
       // ── Move cars & track stats ──
@@ -598,68 +828,130 @@ export default function VoxelScene({ score, setScore, onGameOver }: VoxelScenePr
           isHitRef.current = true;
           hitTimeRef.current = 0;
           play('hit');
+          // Create death explosion
+          if (sceneRef.current) {
+            createDeathExplosion(sceneRef.current, P.position.clone());
+          }
+          // Trigger screen shake
+          screenShakeRef.current.intensity = 1.0;
         }
       }
 
-      // ── Death / ragdoll animation ──
+      // ── Death / ragdoll animation (VIOLENT VERSION) ──
       if (isHitRef.current) {
         hitTimeRef.current += delta;
         const t = hitTimeRef.current;
-        const dur = 1.2;
+        const dur = 1.5;
         const bL = -3.5, bR = 3.5;
 
+        // Update death particles
+        if (deathParticlesRef.current) {
+          const particlePositions = deathParticlesRef.current.geometry.attributes.position.array as Float32Array;
+          const velocities = (deathParticlesRef.current.geometry as any).velocities as THREE.Vector3[];
+          const material = deathParticlesRef.current.material as THREE.PointsMaterial;
+
+          for (let i = 0; i < velocities.length; i++) {
+            const i3 = i * 3;
+            // Apply gravity and velocity
+            velocities[i].y -= 20 * delta; // Gravity
+            particlePositions[i3] += velocities[i].x * delta;
+            particlePositions[i3 + 1] += velocities[i].y * delta;
+            particlePositions[i3 + 2] += velocities[i].z * delta;
+
+            // Fade out over time
+            material.opacity = Math.max(0, 1 - t / 1.2);
+          }
+
+          deathParticlesRef.current.geometry.attributes.position.needsUpdate = true;
+
+          // Remove particles when faded
+          if (t > 1.2 && sceneRef.current) {
+            sceneRef.current.remove(deathParticlesRef.current);
+            deathParticlesRef.current = null;
+          }
+        }
+
+        // Screen shake with decay
+        if (screenShakeRef.current.intensity > 0) {
+          screenShakeRef.current.intensity -= delta * 2.5;
+          screenShakeRef.current.x = (Math.random() - 0.5) * screenShakeRef.current.intensity * 0.8;
+          screenShakeRef.current.y = (Math.random() - 0.5) * screenShakeRef.current.intensity * 0.8;
+        }
+
         if (t < dur) {
-          // Phase 1: Impact (0–0.3s)
-          if (t < 0.3) {
-            const ip = t / 0.3;
-            P.rotation.x = ip * Math.PI * 3;
-            P.rotation.y = ip * Math.PI * 2;
-            P.rotation.z = ip * Math.PI * 2.5;
-            P.position.y = 0.5 + Math.sin(ip * Math.PI) * 2.5;
+          // Phase 1: VIOLENT Impact (0–0.2s) - Instant brutal hit
+          if (t < 0.2) {
+            const ip = t / 0.2;
+            // Extreme spinning
+            P.rotation.x = ip * Math.PI * 8;
+            P.rotation.y = ip * Math.PI * 6;
+            P.rotation.z = ip * Math.PI * 7;
+            // Explosive upward launch
+            P.position.y = 0.5 + Math.sin(ip * Math.PI) * 5.5;
 
-            let nx = P.position.x + hitDirRef.current.x * delta * 8;
-            if (nx < bL) { nx = bL; hitDirRef.current.x *= -0.6; }
-            else if (nx > bR) { nx = bR; hitDirRef.current.x *= -0.6; }
+            // Faster, more violent sideways motion
+            let nx = P.position.x + hitDirRef.current.x * delta * 18;
+            if (nx < bL) { nx = bL; hitDirRef.current.x *= -0.8; }
+            else if (nx > bR) { nx = bR; hitDirRef.current.x *= -0.8; }
             P.position.x = nx;
-            P.position.z += hitDirRef.current.z * delta * 8;
+            P.position.z += hitDirRef.current.z * delta * 18;
 
-            const sq = 1 - ip * 0.4;
-            P.scale.set(1.2, sq, 1.2);
+            // Extreme squash on impact
+            const sq = 1 - ip * 0.7;
+            P.scale.set(1.5, sq, 1.5);
           }
-          // Phase 2: Airborne (0.3–0.8s)
-          else if (t < 0.8) {
-            const ap = (t - 0.3) / 0.5;
-            P.rotation.x = Math.PI * 3 + ap * Math.PI * 2;
-            P.rotation.y = Math.PI * 2 + ap * Math.PI;
-            P.rotation.z = Math.PI * 2.5 + ap * Math.PI * 1.5;
-            P.position.y = 0.5 + 2.5 * (1 - ap);
+          // Phase 2: Tumbling flight (0.2–0.9s) - Chaotic airborne
+          else if (t < 0.9) {
+            const ap = (t - 0.2) / 0.7;
+            // Uncontrolled tumbling with more rotations
+            P.rotation.x = Math.PI * 8 + ap * Math.PI * 12 + Math.sin(ap * Math.PI * 4) * 2;
+            P.rotation.y = Math.PI * 6 + ap * Math.PI * 8 + Math.cos(ap * Math.PI * 3) * 2;
+            P.rotation.z = Math.PI * 7 + ap * Math.PI * 10 + Math.sin(ap * Math.PI * 5) * 2;
 
-            let nx = P.position.x + hitDirRef.current.x * delta * (4 - ap * 3);
-            if (nx < bL) { nx = bL; hitDirRef.current.x *= -0.5; }
-            else if (nx > bR) { nx = bR; hitDirRef.current.x *= -0.5; }
+            // High arc trajectory
+            P.position.y = 0.5 + 5.5 * (1 - ap * ap); // Parabolic arc
+
+            // Violent horizontal motion with wobble
+            let nx = P.position.x + hitDirRef.current.x * delta * (10 - ap * 8);
+            nx += Math.sin(t * 30) * 0.3; // Erratic wobble
+            if (nx < bL) { nx = bL; hitDirRef.current.x *= -0.7; }
+            else if (nx > bR) { nx = bR; hitDirRef.current.x *= -0.7; }
             P.position.x = nx;
-            P.position.z += hitDirRef.current.z * delta * (4 - ap * 3);
-            P.scale.set(1, 1, 1);
+            P.position.z += hitDirRef.current.z * delta * (10 - ap * 8);
+
+            // Random scale variations (body flailing)
+            const wobble = Math.sin(t * 20) * 0.2;
+            P.scale.set(1 + wobble, 1 - wobble * 0.5, 1 + wobble);
           }
-          // Phase 3: Landing (0.8–1.2s)
+          // Phase 3: Brutal Landing (0.9–1.5s) - Hard impact and multiple bounces
           else {
-            const lp = (t - 0.8) / 0.4;
-            P.rotation.x = Math.PI * 5 + lp * Math.PI * 0.5;
-            P.rotation.y = Math.PI * 3 + lp * Math.PI * 0.3;
-            P.rotation.z = Math.PI * 4 + lp * Math.PI * 0.4;
+            const lp = (t - 0.9) / 0.6;
+            // Slower tumbling as energy dissipates
+            P.rotation.x = Math.PI * 20 + lp * Math.PI * 3;
+            P.rotation.y = Math.PI * 14 + lp * Math.PI * 2;
+            P.rotation.z = Math.PI * 17 + lp * Math.PI * 2.5;
 
-            const bounce = Math.max(0, Math.sin(lp * Math.PI * 2) * 0.3 * (1 - lp));
-            P.position.y = Math.max(-0.2, bounce - lp * 0.5);
+            // Multiple violent bounces
+            const bounceCount = 3;
+            const bounceProgress = lp * bounceCount;
+            const currentBounce = Math.floor(bounceProgress);
+            const bouncePhase = bounceProgress - currentBounce;
+            const bounceHeight = Math.max(0,
+              Math.sin(bouncePhase * Math.PI) * 1.2 * Math.pow(0.4, currentBounce)
+            );
+            P.position.y = Math.max(-0.3, bounceHeight - lp * 0.6);
 
-            let nx = P.position.x + hitDirRef.current.x * delta * (1 - lp);
+            // Sliding motion with friction
+            let nx = P.position.x + hitDirRef.current.x * delta * (3 - lp * 2.5);
             if (nx < bL) nx = bL;
             else if (nx > bR) nx = bR;
             P.position.x = nx;
-            P.position.z += hitDirRef.current.z * delta * (1 - lp);
+            P.position.z += hitDirRef.current.z * delta * (3 - lp * 2.5);
 
-            if (lp < 0.5) {
-              const s = Math.sin(lp * Math.PI * 2) * 0.3;
-              P.scale.set(1 + s, 1 - s, 1 + s);
+            // Impact squash on each bounce
+            if (bouncePhase < 0.2) {
+              const impactSquash = (1 - bouncePhase / 0.2) * 0.5 * Math.pow(0.5, currentBounce);
+              P.scale.set(1 + impactSquash, 1 - impactSquash, 1 + impactSquash);
             } else {
               P.scale.set(1, 1, 1);
             }

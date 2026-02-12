@@ -4,8 +4,11 @@ import { View, Text, TouchableOpacity, StyleSheet, TextInput, KeyboardAvoidingVi
 import VoxelScene from './VoxelScene';
 import Leaderboard from '../components/Leaderboard';
 import AchievementsModal from '../components/AchievementsModal';
+import Toast from '../components/Toast';
 import { saveScore } from '../lib/leaderboard';
 import { useAchievementsWithPersistence } from './achievementsManagerWithPersistence';
+import { getDifficultyIndex } from '../lib/difficultyApi';
+import { shareScore, shareHighScore } from '../utils/shareScore';
 
 type GameState = 'menu' | 'playing' | 'gameOver';
 
@@ -21,6 +24,10 @@ export default function Game() {
   const [bestTime, setBestTime] = useState(0);
 
   const [gameKey, setGameKey] = useState(0);
+  const [difficultyIndex, setDifficultyIndex] = useState(75); // Default to hard
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
 
   // Achievements system with Supabase persistence
   const {
@@ -39,6 +46,15 @@ export default function Game() {
       setUsername(savedUsername);
     }
   }, [savedUsername]);
+
+  // Fetch difficulty index on mount
+  React.useEffect(() => {
+    const fetchDifficulty = async () => {
+      const difficulty = await getDifficultyIndex();
+      setDifficultyIndex(difficulty);
+    };
+    fetchDifficulty();
+  }, []);
 
   const startGame = () => {
     setScore(0);
@@ -96,10 +112,37 @@ export default function Game() {
     resetSessionAchievements();
   };
 
+  const handleShareScore = async () => {
+    const isNewHighScore = score > best && best > 0;
+
+    let result;
+    if (isNewHighScore) {
+      result = await shareHighScore(score, best, username || undefined);
+    } else {
+      result = await shareScore(score, username || undefined, survivalTime);
+    }
+
+    if (result.success) {
+      setToastMessage('Score shared successfully!');
+      setToastType('success');
+      setToastVisible(true);
+    } else if (result.error && result.error !== 'dismissed') {
+      setToastMessage('Failed to share score');
+      setToastType('error');
+      setToastVisible(true);
+    }
+  };
+
   if (gameState === 'playing') {
     return (
       <View style={{ flex: 1, backgroundColor: '#000' }}>
-        <VoxelScene key={gameKey} score={score} setScore={setScore} onGameOver={handleGameOver} />
+        <VoxelScene
+          key={gameKey}
+          score={score}
+          setScore={setScore}
+          onGameOver={handleGameOver}
+          difficultyIndex={difficultyIndex}
+        />
         <View style={styles.scoreOverlay}>
           <Text style={styles.scoreText}>{score}</Text>
         </View>
@@ -231,6 +274,11 @@ export default function Game() {
               </TouchableOpacity>
             )}
 
+            {/* Share Score Button */}
+            <TouchableOpacity style={styles.shareButton} onPress={handleShareScore}>
+              <Text style={styles.shareButtonText}>📤 Share Score with Friends</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.playAgainButton} onPress={startGame}>
               <Text style={styles.playAgainButtonText}>🎮 Play Again</Text>
             </TouchableOpacity>
@@ -258,6 +306,15 @@ export default function Game() {
           unlockedThisSession={unlockedThisSession}
           onClose={() => setViewingAchievements(false)}
         />
+
+        {/* Toast Notification */}
+        {toastVisible && (
+          <Toast
+            message={toastMessage}
+            type={toastType}
+            onHide={() => setToastVisible(false)}
+          />
+        )}
       </KeyboardAvoidingView>
     );
   }
@@ -508,6 +565,19 @@ const styles = StyleSheet.create({
     color: '#9db4d1',
     fontSize: 15,
     fontWeight: '600',
+  },
+  shareButton: {
+    backgroundColor: '#8b5cf6',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#a78bfa',
+  },
+  shareButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   playAgainButton: {
     backgroundColor: '#10b981',
