@@ -11,6 +11,7 @@ import { getDifficultyIndex } from '../lib/difficultyApi';
 import { shareScore, shareHighScore } from '../utils/shareScore';
 import { showInterstitialIfEligible } from '../ads/adManager';
 import { incrementGamePlayCount } from '../ads/adCounters';
+import BannerAdComponent from '../ads/BannerAd';
 
 type GameState = 'menu' | 'playing' | 'gameOver';
 
@@ -348,6 +349,11 @@ export default function Game() {
           <Text style={styles.achievementsButtonText}>Achievements</Text>
         </TouchableOpacity>
         {best > 0 && <Text style={styles.best}>Personal Best: {best}</Text>}
+      </View>
+
+      {/* Banner Ad at bottom of menu */}
+      <View style={styles.bannerContainer}>
+        <BannerAdComponent />
       </View>
 
       {viewingLeaderboard && (

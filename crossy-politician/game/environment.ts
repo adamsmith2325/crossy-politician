@@ -206,7 +206,7 @@ export function createWeatherParticles(
     return null;
   }
 
-  const particleCount = weather === 'rain' ? 120 : 60; // OPTIMIZED: Further reduced for better performance
+  const particleCount = weather === 'rain' ? 50 : 30; // OPTIMIZED: Further reduced for mobile performance
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(particleCount * 3);
 

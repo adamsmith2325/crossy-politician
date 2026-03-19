@@ -288,15 +288,15 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
         g.add(d);
       }
 
-      // Add buildings on sidewalks (randomly)
-      if (laneIdx > 2 && Math.random() < 0.6) {
+      // OPTIMIZED: Add buildings less frequently (30% instead of 60%)
+      if (laneIdx > 2 && Math.random() < 0.3) {
         // Left side building
         const leftBldg = buildNYCBuilding();
         leftBldg.position.set(-11.5, 0, 0);
         g.add(leftBldg);
       }
 
-      if (laneIdx > 2 && Math.random() < 0.6) {
+      if (laneIdx > 2 && Math.random() < 0.3) {
         // Right side building
         const rightBldg = buildNYCBuilding();
         rightBldg.position.set(11.5, 0, 0);
@@ -342,34 +342,28 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
     building.receiveShadow = true;
     g.add(building);
 
-    // Windows (lots of them for skyscraper effect)
-    const windowRows = Math.floor(height * 2);
-    const windowCols = Math.floor(width * 1.2);
-    const windowSize = 0.15;
-    const windowSpacing = 0.4;
+    // Windows - OPTIMIZED: Use texture instead of individual meshes
+    // Reduced from 100+ meshes to just window accents for performance
+    const windowAccents = Math.min(Math.floor(height / 5), 6); // Max 6 window rows
+    const windowSize = 0.2;
+    const windowSpacing = height / windowAccents;
 
-    // Only render windows on front faces to save performance
-    for (let row = 0; row < windowRows; row++) {
-      for (let col = 0; col < windowCols; col++) {
-        const isLit = Math.random() < 0.5; // 50% windows lit
-        const windowMat = new THREE.MeshStandardMaterial({
-          color: isLit ? 0xffeaa0 : 0x1a1f2a,
-          emissive: isLit ? 0x664400 : 0x000000,
-          emissiveIntensity: isLit ? 0.4 : 0,
-        });
+    for (let row = 0; row < windowAccents; row++) {
+      const isLit = Math.random() < 0.5;
+      const windowMat = new THREE.MeshStandardMaterial({
+        color: isLit ? 0xffeaa0 : 0x1a1f2a,
+        emissive: isLit ? 0x664400 : 0x000000,
+        emissiveIntensity: isLit ? 0.4 : 0,
+      });
 
-        const window = new THREE.Mesh(
-          new THREE.BoxGeometry(windowSize, windowSize, 0.05),
-          windowMat
-        );
+      const window = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 0.7, windowSize, 0.05),
+        windowMat
+      );
 
-        const xPos = (col - windowCols / 2 + 0.5) * windowSpacing;
-        const yPos = (row - windowRows / 2 + 0.5) * windowSpacing + height / 2;
-
-        // Front face
-        window.position.set(xPos, yPos, depth / 2 + 0.025);
-        g.add(window);
-      }
+      const yPos = (row - windowAccents / 2 + 0.5) * windowSpacing + height / 2;
+      window.position.set(0, yPos, depth / 2 + 0.025);
+      g.add(window);
     }
 
     // Rooftop details for some buildings
@@ -407,32 +401,27 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
     building.receiveShadow = true;
     g.add(building);
 
-    // Add windows
-    const windowRows = Math.floor(height * 1.5);
-    const windowCols = Math.floor(width * 1.5);
+    // Add windows - OPTIMIZED: Horizontal window strips instead of individual windows
+    const windowRows = Math.min(Math.floor(height * 0.8), 4); // Max 4 rows
     const windowSize = 0.15;
-    const windowSpacing = 0.35;
+    const windowSpacing = height / windowRows;
 
     for (let row = 0; row < windowRows; row++) {
-      for (let col = 0; col < windowCols; col++) {
-        const isLit = Math.random() < 0.4;
-        const windowMat = new THREE.MeshStandardMaterial({
-          color: isLit ? 0xffd966 : 0x2a2f3a,
-          emissive: isLit ? 0x664400 : 0x000000,
-          emissiveIntensity: isLit ? 0.3 : 0,
-        });
+      const isLit = Math.random() < 0.4;
+      const windowMat = new THREE.MeshStandardMaterial({
+        color: isLit ? 0xffd966 : 0x2a2f3a,
+        emissive: isLit ? 0x664400 : 0x000000,
+        emissiveIntensity: isLit ? 0.3 : 0,
+      });
 
-        const window = new THREE.Mesh(
-          new THREE.BoxGeometry(windowSize, windowSize, 0.05),
-          windowMat
-        );
+      const window = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 0.8, windowSize, 0.05),
+        windowMat
+      );
 
-        const xPos = (col - windowCols / 2 + 0.5) * windowSpacing;
-        const yPos = (row - windowRows / 2 + 0.5) * windowSpacing + height / 2 - 0.2;
-
-        window.position.set(xPos, yPos, 0.48);
-        g.add(window);
-      }
+      const yPos = (row - windowRows / 2 + 0.5) * windowSpacing + height / 2 - 0.2;
+      window.position.set(0, yPos, 0.48);
+      g.add(window);
     }
 
     return g;
@@ -512,46 +501,33 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
       lanesRef.current.push(lane);
       addLaneToScene(lane, scene);
 
-      // Add skyscrapers every 5 lanes - positioned close to be visible within 3 moves
-      if (furthestLaneRef.current % 5 === 0) {
+      // OPTIMIZED: Add skyscrapers less frequently (every 10 lanes instead of 5)
+      if (furthestLaneRef.current % 10 === 0) {
         const zPos = furthestLaneRef.current;
 
-        // Close left (visible after 3-4 left moves)
+        // Close left (visible from game view)
         const leftClose = buildSkyscraper();
-        leftClose.position.set(-7, 0, -zPos);
+        leftClose.position.set(-17, 0, -zPos);
         scene.add(leftClose);
         skyscrapersRef.current.push(leftClose);
 
-        // Close right (visible after 3-4 right moves)
+        // Close right (visible from game view)
         const rightClose = buildSkyscraper();
-        rightClose.position.set(6, 0, -zPos);
+        rightClose.position.set(17, 0, -zPos);
         scene.add(rightClose);
         skyscrapersRef.current.push(rightClose);
 
-        // Mid distance (every 10 lanes) - slightly further back for depth
-        if (furthestLaneRef.current % 10 === 0) {
+        // Mid distance (every 20 lanes)
+        if (furthestLaneRef.current % 20 === 0) {
           const leftMid = buildSkyscraper();
-          leftMid.position.set(-11, 0, -zPos - 2);
+          leftMid.position.set(-28, 0, -zPos - 2);
           scene.add(leftMid);
           skyscrapersRef.current.push(leftMid);
 
           const rightMid = buildSkyscraper();
-          rightMid.position.set(10, 0, -zPos - 2);
+          rightMid.position.set(28, 0, -zPos - 2);
           scene.add(rightMid);
           skyscrapersRef.current.push(rightMid);
-        }
-
-        // Far background (every 15 lanes) - for skyline depth
-        if (furthestLaneRef.current % 15 === 0) {
-          const leftFar = buildSkyscraper();
-          leftFar.position.set(-15, 0, -zPos - 5);
-          scene.add(leftFar);
-          skyscrapersRef.current.push(leftFar);
-
-          const rightFar = buildSkyscraper();
-          rightFar.position.set(14, 0, -zPos - 5);
-          scene.add(rightFar);
-          skyscrapersRef.current.push(rightFar);
         }
       }
     }
@@ -601,7 +577,7 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
   // DEATH PARTICLE EXPLOSION
   // ═══════════════════════════════════════════════════════════════════
   const createDeathExplosion = (scene: THREE.Scene, position: THREE.Vector3) => {
-    const particleCount = 150;
+    const particleCount = 75; // OPTIMIZED: Reduced from 150 for better performance
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
     const velocities: THREE.Vector3[] = [];
@@ -660,17 +636,21 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
   };
 
   // ═══════════════════════════════════════════════════════════════════
-  // COLLISION
+  // COLLISION - OPTIMIZED: Only check nearby objects
   // ═══════════════════════════════════════════════════════════════════
   const checkCollision = (): boolean => {
     if (!playerRef.current) return false;
     const px = playerRef.current.position.x;
     const pz = playerRef.current.position.z;
     const R = 0.4;
+    const CHECK_DISTANCE = 2.0; // Only check objects within 2 units
 
+    // OPTIMIZED: Only check cars on nearby lanes (within 2 lanes)
     for (const car of carsRef.current) {
+      const dz = Math.abs(pz - car.mesh.position.z);
+      if (dz > CHECK_DISTANCE) continue; // Skip distant cars
+
       const dx = px - car.mesh.position.x;
-      const dz = pz - car.mesh.position.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       if (dist < R) {
         const m = dist || 1;
@@ -678,9 +658,13 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
         return true;
       }
     }
+
+    // OPTIMIZED: Only check obstacles on nearby lanes
     for (const obs of obstaclesRef.current) {
+      const dz = Math.abs(pz - obs.mesh.position.z);
+      if (dz > CHECK_DISTANCE) continue; // Skip distant obstacles
+
       const dx = px - obs.mesh.position.x;
-      const dz = pz - obs.mesh.position.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       if (dist < R) {
         const m = dist || 1;
@@ -759,8 +743,8 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
     const renderer = new Renderer({ gl });
     renderer.setSize(w, h);
     renderer.setClearColor(lighting.skyColor, 1);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.BasicShadowMap;
+    // PERFORMANCE: Disable shadows on mobile for better frame rate
+    renderer.shadowMap.enabled = false;
     rendererRef.current = renderer;
 
     // ── Scene ──
@@ -830,10 +814,9 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
       scene, env.weather, new THREE.Vector3(sx, 0, sz)
     );
 
-    // ── Skyscrapers (Background cityscape) ──
-    // Create skyscrapers close to the sides and along the path
-    // Start from ahead of player and go far back
-    for (let zPos = 10; zPos >= -80; zPos -= 5) {
+    // ── Skyscrapers (Background cityscape) - OPTIMIZED ──
+    // Reduced from 100+ to ~20 buildings for better performance
+    for (let zPos = 10; zPos >= -50; zPos -= 10) {
       // Close left side (visible from game view)
       const leftClose = buildSkyscraper();
       leftClose.position.set(-17, 0, -zPos);
@@ -846,8 +829,8 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
       scene.add(rightClose);
       skyscrapersRef.current.push(rightClose);
 
-      // Add depth layers - mid distance
-      if (zPos % 10 === 0) {
+      // Add depth layers - mid distance (every 20 instead of 10)
+      if (zPos % 20 === 0) {
         const leftMid = buildSkyscraper();
         leftMid.position.set(-28, 0, -zPos - 2);
         scene.add(leftMid);
@@ -857,19 +840,6 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
         rightMid.position.set(28, 0, -zPos - 2);
         scene.add(rightMid);
         skyscrapersRef.current.push(rightMid);
-      }
-
-      // Add depth layers - far background
-      if (zPos % 15 === 0) {
-        const leftFar = buildSkyscraper();
-        leftFar.position.set(-40, 0, -zPos - 5);
-        scene.add(leftFar);
-        skyscrapersRef.current.push(leftFar);
-
-        const rightFar = buildSkyscraper();
-        rightFar.position.set(40, 0, -zPos - 5);
-        scene.add(rightFar);
-        skyscrapersRef.current.push(rightFar);
       }
     }
 

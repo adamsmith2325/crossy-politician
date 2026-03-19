@@ -12,7 +12,12 @@
       "Bash(npx expo install:*)",
       "Bash(cat:*)",
       "Bash(rm:*)",
-      "Bash(npx expo prebuild:*)"
+      "Bash(npx expo prebuild:*)",
+      "Read(//c/adamAppsV2/**)",
+      "Bash(npx expo start -c)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": []
