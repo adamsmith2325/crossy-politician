@@ -1,0 +1,8 @@
+{
+  "android": {
+    "package": "com.adamn52.crossypolitician"
+  },
+  "ios": {
+    "bundleIdentifier": "com.adamn52.crossypolitician"
+  }
+}
