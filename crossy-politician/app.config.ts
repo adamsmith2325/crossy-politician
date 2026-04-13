@@ -5,7 +5,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: "Crossy Trump",
   slug: "crossy-politician",
   scheme: "crossypolitician",
-  version: "1.0.2",
+  version: "1.0.3",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
   icon: "./assets/trump-icon.png",
