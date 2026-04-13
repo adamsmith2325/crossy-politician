@@ -53,7 +53,7 @@ export const showAppOpenIfEligible = async (appOpenCount: number) => {
 
 export const showInterstitialIfEligible = async (runCount: number) => {
   prepareAds();
-  if (runCount > 0 && runCount % 4 === 0 && interstitialLoaded && interstitial) {
+  if (runCount > 0 && runCount % 3 === 0 && interstitialLoaded && interstitial) {
     return new Promise<void>((resolve) => {
       const onClosed = () => {
         interstitial?.removeAllListeners();

@@ -2,6 +2,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal } from 'react-native';
 import type { Achievement } from '../game/achievementsManager';
+import BannerAdComponent from '../ads/BannerAd';
 
 interface AchievementsModalProps {
   visible: boolean;
@@ -96,6 +97,8 @@ export default function AchievementsModal({
               </ScrollView>
             </>
           )}
+
+          <BannerAdComponent />
 
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
             <Text style={styles.closeButtonText}>Close</Text>

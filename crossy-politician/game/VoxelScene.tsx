@@ -123,7 +123,14 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
     initSounds();
     startTimeRef.current = Date.now();
     console.log(`🎮 Game started with difficulty index: ${difficultyIndex}`);
+    // Detect if GL context never fires
+    const glTimeout = setTimeout(() => {
+      if (!glRef.current) {
+        console.warn('⚠️ GL context was NOT created after 3s — expo-gl may not work on this simulator. Try a physical device.');
+      }
+    }, 3000);
     return () => {
+      clearTimeout(glTimeout);
       if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
       gameOverRef.current = false;
       isMovingRef.current = false;
@@ -732,6 +739,10 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
   // GL CONTEXT CREATION
   // ═══════════════════════════════════════════════════════════════════
   const onContextCreate = async (gl: any) => {
+    console.log('🎮 GL context created!', {
+      drawingBufferWidth: gl.drawingBufferWidth,
+      drawingBufferHeight: gl.drawingBufferHeight,
+    });
     glRef.current = gl;
     const env = envRef.current;
     const lighting = getLightingConfig(env);
@@ -847,10 +858,22 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
     // ANIMATION LOOP
     // ═════════════════════════════════════════════════════════════════
     let lastTime = Date.now();
+    let frameCount = 0;
 
     const animate = () => {
-      if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) return;
+      if (!sceneRef.current || !cameraRef.current || !rendererRef.current || !playerRef.current) {
+        console.warn('⚠️ Animate bailed — missing ref:', {
+          scene: !!sceneRef.current, camera: !!cameraRef.current,
+          renderer: !!rendererRef.current, player: !!playerRef.current,
+        });
+        return;
+      }
       animFrameRef.current = requestAnimationFrame(animate);
+      frameCount++;
+      if (frameCount <= 5 || frameCount % 60 === 0) {
+        console.log(`🎞️ Frame ${frameCount}`);
+      }
+      try {
 
       const now = Date.now();
       const delta = Math.min((now - lastTime) / 1000, 0.1);
@@ -1115,6 +1138,15 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
 
       rendererRef.current.render(sceneRef.current, cameraRef.current);
       gl.endFrameEXP();
+      if (frameCount === 1) {
+        console.log('✅ First frame rendered successfully');
+        console.log('📷 Camera pos:', cameraRef.current.position.toArray());
+        console.log('🎭 Scene children:', sceneRef.current.children.length);
+        console.log('🖥️ Renderer size:', rendererRef.current.getSize(new THREE.Vector2()).toArray());
+      }
+      } catch (e: any) {
+        console.error(`❌ Error on frame ${frameCount}:`, e?.message || e);
+      }
     };
 
     animate();
@@ -1125,7 +1157,7 @@ export default function VoxelScene({ score, setScore, onGameOver, difficultyInde
   // ═══════════════════════════════════════════════════════════════════
   return (
     <View style={{ flex: 1 }} {...panResponder.panHandlers}>
-      <GLView style={{ flex: 1 }} onContextCreate={onContextCreate} />
+      <GLView style={{ flex: 1 }} msaaSamples={4} onContextCreate={onContextCreate} />
     </View>
   );
 }

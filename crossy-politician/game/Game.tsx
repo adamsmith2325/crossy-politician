@@ -153,6 +153,9 @@ export default function Game() {
         <View style={styles.scoreOverlay}>
           <Text style={styles.scoreText}>{score}</Text>
         </View>
+        <View style={styles.bannerContainer}>
+          <BannerAdComponent />
+        </View>
       </View>
     );
   }
@@ -162,6 +165,7 @@ export default function Game() {
       return (
         <View style={{ flex: 1, backgroundColor: '#0b1220' }}>
           <Leaderboard currentScore={savedScore ? score : undefined} />
+          <BannerAdComponent />
           <View style={styles.bottomButtonContainer}>
             <TouchableOpacity style={styles.button} onPress={handleBackToMenu}>
               <Text style={styles.buttonText}>Back to Menu</Text>
@@ -307,6 +311,8 @@ export default function Game() {
           </View>
         </ScrollView>
 
+        <BannerAdComponent />
+
         <AchievementsModal
           visible={viewingAchievements}
           achievements={achievements}
@@ -330,7 +336,7 @@ export default function Game() {
   return (
     <View style={{ flex: 1, backgroundColor: '#0b1220' }}>
       <View style={styles.menu}>
-        <Text style={styles.title}>Crossy Politician</Text>
+        <Text style={styles.title}>Crossy Tump</Text>
         <Text style={styles.subtitle}>Navigate the city streets!</Text>
         <TouchableOpacity style={styles.button} onPress={startGame}>
           <Text style={styles.buttonText}>Start Game</Text>
@@ -351,15 +357,11 @@ export default function Game() {
         {best > 0 && <Text style={styles.best}>Personal Best: {best}</Text>}
       </View>
 
-      {/* Banner Ad at bottom of menu */}
-      <View style={styles.bannerContainer}>
-        <BannerAdComponent />
-      </View>
-
       {viewingLeaderboard && (
         <View style={styles.leaderboardOverlay}>
           <View style={styles.leaderboardContainer}>
             <Leaderboard />
+            <BannerAdComponent />
             <TouchableOpacity style={styles.closeButton} onPress={() => setViewingLeaderboard(false)}>
               <Text style={styles.buttonText}>Close</Text>
             </TouchableOpacity>
