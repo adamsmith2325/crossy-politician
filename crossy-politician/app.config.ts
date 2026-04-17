@@ -8,9 +8,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: "1.0.3",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
-  icon: "./assets/trump-icon.png",
+  icon: "./assets/icon.png",
   splash: {
-    image: "./assets/trump-splash.png",
+    image: "./assets/splash.png",
     resizeMode: "contain",
     backgroundColor: "#0b1220"
   },
